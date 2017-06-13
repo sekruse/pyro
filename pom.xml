@@ -10,6 +10,8 @@
     <packaging>pom</packaging>
     <modules>
         <module>pyro-core</module>
+        <module>pyro-metanome</module>
+        <module>pyro-akka</module>
     </modules>
 
     <properties>
@@ -17,8 +19,8 @@
         <metacrate.version>0.0.3-SNAPSHOT</metacrate.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
-        <scala.version>2.12</scala.version>
-        <scala.compat.version>2.12.4</scala.compat.version>
+        <scala.version>2.11</scala.version>
+        <scala.compat.version>2.11.11</scala.compat.version>
     </properties>
 
 
@@ -35,6 +37,12 @@
                         </descriptorRefs>
                         <appendAssemblyId>false</appendAssemblyId>
                     </configuration>
+                </plugin>
+
+                <plugin>
+                    <groupId>net.alchim31.maven</groupId>
+                    <artifactId>scala-maven-plugin</artifactId>
+                    <version>3.2.2</version>
                 </plugin>
             </plugins>
         </pluginManagement>
@@ -102,6 +110,27 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-math3</artifactId>
                 <version>3.6.1</version>
+            </dependency>
+            <dependency>
+                <groupId>com.typesafe.akka</groupId>
+                <artifactId>akka-actor_${scala.version}</artifactId>
+                <version>2.5.2</version>
+            </dependency>
+            <dependency>
+                <groupId>com.typesafe.akka</groupId>
+                <artifactId>akka-remote_${scala.version}</artifactId>
+                <version>2.5.2</version>
+            </dependency>
+            <dependency>
+                <groupId>com.typesafe.akka</groupId>
+                <artifactId>akka-slf4j_${scala.version}</artifactId>
+                <version>2.5.2</version>
+            </dependency>
+            <dependency>
+                <groupId>com.typesafe.akka</groupId>
+                <artifactId>akka-testkit_${scala.version}</artifactId>
+                <version>2.5.2</version>
+                <scope>test</scope>
             </dependency>
             <dependency>
                 <groupId>junit</groupId>
