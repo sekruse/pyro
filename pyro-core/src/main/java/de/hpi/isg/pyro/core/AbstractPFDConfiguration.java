@@ -1,4 +1,4 @@
-package de.hpi.isg.pyro.algorithms;
+package de.hpi.isg.pyro.core;
 
 import de.hpi.isg.pyro.model.Relation;
 import de.hpi.isg.pyro.model.Vertical;
@@ -15,7 +15,7 @@ public class AbstractPFDConfiguration {
      * {@link de.hpi.isg.mdms.model.targets.Table} on that we operate.
      */
     @MetanomeProperty
-    String tableIdentifier;
+    public String tableIdentifier;
 
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -26,18 +26,18 @@ public class AbstractPFDConfiguration {
      * The maximum arity (both for keys and FDs) to consider.
      */
     @MetanomeProperty
-    int maxArity = -1;
+    public int maxArity = -1;
 
     /**
      * Defines the {@link #maxCorrelationLogPValue} to be {@code 10^x}, where {@code x} is this value.
      */
     @MetanomeProperty
-    double maxCorrelationPValueExponent = 1;
+    public double maxCorrelationPValueExponent = 1;
 
     /**
      * Designates when a correlation of two columns is considered statically relevant w.r.t. a hyper-geometric test.
      */
-    double maxCorrelationLogPValue;
+    public double maxCorrelationLogPValue;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // FD pruning rules.
@@ -47,20 +47,20 @@ public class AbstractPFDConfiguration {
      * Whether to find FDs.
      */
     @MetanomeProperty
-    boolean isFindFds = true;
+    public boolean isFindFds = true;
 
     /**
      * The maximum FD error w.r.t. the {@link #fdErrorMeasure}.
      */
     @MetanomeProperty
-    double maxFdError = 0.01;
+    public double maxFdError = 0.01;
 
 
     /**
      * Controls which FD error measure to use.
      */
     @MetanomeProperty
-    String fdErrorMeasure = "g1prime";
+    public String fdErrorMeasure = "g1prime";
 
     /**
      * The lower limit (exclusive) on the EP correlation of two columns to consider them for key-value pruning.
@@ -68,7 +68,7 @@ public class AbstractPFDConfiguration {
      * @see Correlations#normalizedCorrelation(Vertical, Vertical, Vertical, Relation)
      */
     @MetanomeProperty
-    double minNormalizedEPCorrelationForKeyValuePruning = Double.NaN; //-0.1;
+    public double minNormalizedEPCorrelationForKeyValuePruning = Double.NaN; //-0.1;
 
     /**
      * The upper limit (exclusive) on the EP correlation of two columns to consider them for key-value pruning.
@@ -76,7 +76,7 @@ public class AbstractPFDConfiguration {
      * @see Correlations#normalizedCorrelation(Vertical, Vertical, Vertical, Relation)
      */
     @MetanomeProperty
-    double maxNormalizedEPCorrelationForKeyValuePruning = Double.NaN; //0.1;
+    public double maxNormalizedEPCorrelationForKeyValuePruning = Double.NaN; //0.1;
 
     /**
      * The lower limit (exclusive) on the conditional IP correlation of two key columns w.r.t. a value column to
@@ -85,36 +85,37 @@ public class AbstractPFDConfiguration {
      * @see Correlations#normalizedIPConditionalCorrelation(Vertical, Vertical, Vertical, Vertical, Vertical, Vertical, Vertical)
      */
     @MetanomeProperty
-    double maxNormalizedIPConditionalCorrelationForKeyKeyValuePruning = Double.NaN; //.9;
+    public double maxNormalizedIPConditionalCorrelationForKeyKeyValuePruning = Double.NaN; //.9;
 
     /**
      * Whether supersets of partial keys should be considered.
      */
     @MetanomeProperty
-    boolean isFindOnlyMinimalPFDs = true;
+    public boolean isFindOnlyMinimalPFDs = true;
+
     /**
      * Whether FDs should be found that hold where there key is not {@code null}.
      */
     @MetanomeProperty
-    boolean isFindRestrictedFDs = false;
+    public boolean isFindRestrictedFDs = false;
 
     /**
      * Whether partial FDs should be used for transitive pruning.
      */
     @MetanomeProperty
-    boolean isPruningWithPFDs = false;
+    public boolean isPruningWithPFDs = false;
 
     /**
      * Whether partial keys should not serve as LHS of partial FDs.
      */
     @MetanomeProperty
-    boolean isPruningPFDsWithPKeys = false;
+    public boolean isPruningPFDsWithPKeys = false;
 
     /**
      * Designates the maximum number of partial FDs to be discovered (according to some ranking criterion).
      */
     @MetanomeProperty
-    int topKFds = -1;
+    public int topKFds = -1;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Key pruning rules.
@@ -124,19 +125,19 @@ public class AbstractPFDConfiguration {
      * Whether to find keys.
      */
     @MetanomeProperty
-    boolean isFindKeys = true;
+    public boolean isFindKeys = true;
 
     /**
      * Name of the UCC error measure.
      */
     @MetanomeProperty
-    String uccErrorMeasure = "g1prime";
+    public String uccErrorMeasure = "g1prime";
 
     /**
      * The maximum key error w.r.t. the {@link #uccErrorMeasure}.
      */
     @MetanomeProperty
-    double maxUccError = 0.01;
+    public double maxUccError = 0.01;
 
     /**
      * The lower limit (exclusive) on the EP correlation of two columns to
@@ -145,34 +146,34 @@ public class AbstractPFDConfiguration {
      * @see Correlations#normalizedCorrelation(Vertical, Vertical, Vertical, Relation)
      */
     @MetanomeProperty
-    double minNormalizedEPCorrelationForKeyKeyPruning = Double.NaN; // 0.5;
+    public double minNormalizedEPCorrelationForKeyKeyPruning = Double.NaN; // 0.5;
 
     /**
      * Whether supersets of partial FDs should be considered.
      */
     @MetanomeProperty
-    boolean isFindOnlyMinimalPKs = true;
+    public boolean isFindOnlyMinimalPKs = true;
 
     /**
      * Designates the maximum number of partial FDs to be discovered (according to some ranking criterion).
      */
     @MetanomeProperty
-    int topKKeys = -1;
+    public int topKKeys = -1;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Miscellaneous configuration.
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     @MetanomeProperty
-    boolean isVerbose = false;
+    public boolean isVerbose = false;
 
     @MetanomeProperty
-    boolean isNullEqualNull = true;
+    public boolean isNullEqualNull = true;
 
     @MetanomeProperty
-    int maxCols = -1;
+    public int maxCols = -1;
 
     @MetanomeProperty
-    int maxRows = -1;
+    public int maxRows = -1;
 
 }

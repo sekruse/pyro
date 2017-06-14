@@ -1,4 +1,4 @@
-package de.hpi.isg.pyro.algorithms;
+package de.hpi.isg.pyro.core;
 
 import de.hpi.isg.pyro.model.*;
 
@@ -13,12 +13,12 @@ abstract public class AbstractDiscoveryUnit {
     /**
      * Sink for discovered partial FDs.
      */
-    Consumer<PartialFD> fdConsumer;
+    protected Consumer<PartialFD> fdConsumer;
 
     /**
      * Sink for discovered partial UCCs.
      */
-    Consumer<PartialKey> uccConsumer;
+    protected Consumer<PartialKey> uccConsumer;
 
     /**
      * Registers a discovered partial FD.

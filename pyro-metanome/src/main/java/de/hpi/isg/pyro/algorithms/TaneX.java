@@ -6,6 +6,8 @@ import de.hpi.isg.mdms.domain.constraints.PartialUniqueColumnCombination;
 import de.hpi.isg.mdms.model.MetadataStore;
 import de.hpi.isg.mdms.model.constraints.ConstraintCollection;
 import de.hpi.isg.mdms.model.targets.Table;
+import de.hpi.isg.pyro.core.AbstractDiscoveryUnit;
+import de.hpi.isg.pyro.core.AbstractPFDConfiguration;
 import de.hpi.isg.pyro.model.*;
 import de.hpi.isg.pyro.properties.MetanomeProperty;
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger;
