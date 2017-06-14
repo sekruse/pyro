@@ -9,7 +9,10 @@ import de.hpi.isg.mdms.model.targets.Table;
 import de.hpi.isg.pyro.model.*;
 import de.hpi.isg.pyro.properties.MetanomeProperty;
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger;
-import de.hpi.isg.pyro.util.*;
+import de.hpi.isg.pyro.util.LatticeLevel;
+import de.hpi.isg.pyro.util.LatticeVertex;
+import de.hpi.isg.pyro.util.PFDRater;
+import de.hpi.isg.pyro.util.PositionListIndex;
 import de.metanome.algorithm_integration.AlgorithmConfigurationException;
 import de.metanome.algorithm_integration.AlgorithmExecutionException;
 import de.metanome.algorithm_integration.algorithm_types.*;
@@ -22,7 +25,6 @@ import de.metanome.algorithm_integration.result_receiver.FunctionalDependencyRes
 import de.metanome.algorithm_integration.result_receiver.UniqueColumnCombinationResultReceiver;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * This TANE implementation specifically looks for approximate/partial FDs. However, we do not hardwire
@@ -36,59 +38,34 @@ import java.util.stream.Collectors;
  * <li>keep singleton keys as RHS candidate, when looking for partial FDs.</li>
  * </ul></p>
  */
-public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombinationsAlgorithm,
+public class TaneX
+        extends AbstractDiscoveryUnit
+        implements FunctionalDependencyAlgorithm, UniqueColumnCombinationsAlgorithm,
         StringParameterAlgorithm, IntegerParameterAlgorithm, FileInputParameterAlgorithm, BooleanParameterAlgorithm,
         MetacrateClient {
+
+    /**
+     * Defines the configuration values for {@link TaneX}.
+     */
+    public static class Configuration extends AbstractPFDConfiguration {
+
+        @MetanomeProperty
+        private String tableIdentifier = null;
+
+    }
 
     public static final String INPUT_FILE_CONFIG_KEY = "inputFile";
 
     private FileInputGenerator fileInputGenerator;
 
-    private MetadataStore metadataStore;
-    private ConstraintCollection<PartialFunctionalDependency> pfdConstraintcollection;
-    private FunctionalDependencyResultReceiver fdResultReceiver;
-    private ConstraintCollection<PartialUniqueColumnCombination> puccConstraintcollection;
-    private UniqueColumnCombinationResultReceiver uccResultReceiver;
-
-    private Map<Column, List<PartialFD>> partialFDs;
-    private List<PartialKey> partialKeys;
-
     private MetanomePropertyLedger propertyLedger;
+    private final Configuration configuration = new Configuration();
 
-    @MetanomeProperty
-    private String outputFile = null;
-
-    @MetanomeProperty
-    private boolean isNullEqualNull = true;
-
-    // Algorithm settings //
-    @MetanomeProperty(name = "fdErrorMeasure")
-    private String fdErrorMeasureName = "g1prime";
-    private PFDRater fdErrorMeasure;
-
-    @MetanomeProperty
-    private double maxFdError = 0.05;
-
-
-    @MetanomeProperty(name = "uccErrorMeasure")
-    private String uccErrorMeasureName = "g1prime";
-    private PFDRater uccErrorMeasure;
-
-    @MetanomeProperty
-    private double maxUccError = 0.05;
-
-    @MetanomeProperty
-    private int maxArity = -1;
-
-    @MetanomeProperty
-    private int maxCols = -1;
-
-    @MetanomeProperty
-    private int maxRows = -1;
-
-    @MetanomeProperty
-    private String tableIdentifier;
+    private MetadataStore metadataStore;
     private Table table;
+    private ConstraintCollection<PartialFunctionalDependency> pfdConstraintcollection;
+    private ConstraintCollection<PartialUniqueColumnCombination> puccConstraintcollection;
+
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Profiling data.
@@ -103,65 +80,65 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
     @Override
     public void execute() throws AlgorithmExecutionException {
         // Initialize.
-        switch (this.fdErrorMeasureName) {
+        final PFDRater fdErrorMeasure;
+        switch (this.configuration.fdErrorMeasure) {
             case "g1prime":
-                this.fdErrorMeasure = PFDRater.g1prime;
+                fdErrorMeasure = PFDRater.g1prime;
                 break;
             case "g1":
-                this.fdErrorMeasure = PFDRater.g1;
+                fdErrorMeasure = PFDRater.g1;
                 break;
             case "G1":
-                this.fdErrorMeasure = PFDRater.G1;
+                fdErrorMeasure = PFDRater.G1;
                 break;
             case "g2":
-                this.fdErrorMeasure = PFDRater.g2;
+                fdErrorMeasure = PFDRater.g2;
                 break;
             case "G2":
-                this.fdErrorMeasure = PFDRater.G2;
+                fdErrorMeasure = PFDRater.G2;
                 break;
             case "g3":
-                this.fdErrorMeasure = PFDRater.g3;
+                fdErrorMeasure = PFDRater.g3;
                 break;
             case "G3":
-                this.fdErrorMeasure = PFDRater.G3;
+                fdErrorMeasure = PFDRater.G3;
                 break;
             case "pdep":
-                this.fdErrorMeasure = (x, a, xa, r) -> 1 - PFDRater.pdep.rate(x, a, xa, r);
+                fdErrorMeasure = (x, a, xa, r) -> 1 - PFDRater.pdep.rate(x, a, xa, r);
                 break;
             case "tau":
-                this.fdErrorMeasure = ((x, a, xa, r) -> 1 - PFDRater.tau.rate(x, a, xa, r));
+                fdErrorMeasure = ((x, a, xa, r) -> 1 - PFDRater.tau.rate(x, a, xa, r));
                 break;
             case "mu":
-                this.fdErrorMeasure = ((x, a, xa, r) -> 1 - PFDRater.mu.rate(x, a, xa, r));
+                fdErrorMeasure = ((x, a, xa, r) -> 1 - PFDRater.mu.rate(x, a, xa, r));
                 break;
             default:
-                throw new IllegalArgumentException(String.format("Illegal error measure: \"%s\"", this.fdErrorMeasureName));
+                throw new IllegalArgumentException(String.format("Illegal error measure: \"%s\"", this.configuration.fdErrorMeasure));
         }
 
         // Initialize.
-        switch (this.uccErrorMeasureName) {
+        final PFDRater uccErrorMeasure;
+        switch (this.configuration.uccErrorMeasure) {
             case "g1prime":
-                this.uccErrorMeasure = (x, a, xa, r) -> PFDRater.round(x.getNep() / r.getNumTuplePairs());
+                uccErrorMeasure = (x, a, xa, r) -> PFDRater.round(x.getNep() / r.getNumTuplePairs());
                 break;
             default:
-                throw new IllegalArgumentException(String.format("Illegal error measure: \"%s\"", this.uccErrorMeasureName));
+                throw new IllegalArgumentException(String.format("Illegal error measure: \"%s\"", this.configuration.fdErrorMeasure));
         }
 
         // Initialize operation on Metacrate.
         if (this.metadataStore != null) {
-            if (this.tableIdentifier == null)
+            if (this.configuration.tableIdentifier == null)
                 throw new IllegalStateException("Cannot operate with Metacrate without a table.");
-            this.table = this.metadataStore.getTableByName(this.tableIdentifier);
+            this.table = this.metadataStore.getTableByName(this.configuration.tableIdentifier);
             if (this.table == null)
                 throw new IllegalStateException("Invalid table identifier given.");
         }
 
 
         // Load data.
-        this.partialFDs = new HashMap<>();
-        this.partialKeys = new ArrayList<>();
         final Relation relation = ColumnLayoutRelation.createFrom(
-                this.fileInputGenerator, this.isNullEqualNull, this.maxCols, this.maxRows
+                this.fileInputGenerator, this.configuration.isNullEqualNull, this.configuration.maxCols, this.configuration.maxRows
         );
 
         // Output info on the inspected relation.
@@ -198,7 +175,7 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
 
             // Check if column forms 0-ary FD.
             double fdError;
-            switch (this.fdErrorMeasureName) {
+            switch (this.configuration.fdErrorMeasure) {
                 case "g1prime":
                     fdError = column.getNip() / relation.getNumTuplePairs();
                     break;
@@ -212,13 +189,13 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
                     fdError = column.getNip();
                     break;
                 default:
-                    System.out.printf("Warning: Cannot calculate 0-ary FD error for %s with %s.\n", column, this.fdErrorMeasureName);
+                    System.out.printf("Warning: Cannot calculate 0-ary FD error for %s with %s.\n", column, this.configuration.fdErrorMeasure);
                     fdError = Double.NaN;
                     break;
             }
-            if (fdError <= this.maxFdError) {
+            if (fdError <= this.configuration.maxFdError) {
                 zeroaryFdRhs.set(column.getIndex());
-                this.registerFd(relation.emptyVertical, column, fdError);
+                this.registerFd(relation.emptyVertical, column, fdError, Double.NaN);
                 vertex.getRhsCandidates().clear(column.getIndex());
                 if (fdError == 0) {
                     vertex.getRhsCandidates().clear();
@@ -231,22 +208,22 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
             vertex.getRhsCandidates().andNot(zeroaryFdRhs);
 
             // Check if column forms a UCC.
-            double uccError = this.uccErrorMeasure.rate(column, null, null, relation);
-            if (uccError <= this.maxUccError) {
-                this.registerUcc(column, uccError);
+            double uccError = uccErrorMeasure.rate(column, null, null, relation);
+            if (uccError <= this.configuration.maxUccError) {
+                this.registerUcc(column, uccError, Double.NaN);
                 vertex.setKeyCandidate(false);
                 if (uccError == 0d) {
                     for (int rhsIndex = vertex.getRhsCandidates().nextSetBit(0);
                          rhsIndex != -1;
                          rhsIndex = vertex.getRhsCandidates().nextSetBit(rhsIndex + 1)) {
                         if (rhsIndex != column.getIndex()) {
-                            this.registerFd(column, relation.getColumn(rhsIndex), 0d);
+                            this.registerFd(column, relation.getColumn(rhsIndex), 0d, Double.NaN);
                         }
                     }
                     vertex.getRhsCandidates().and(column.getColumnIndices());
                     // We invalidate the node if we are looking for exact dependencies, because then we will discover
                     // any remaining FDs towards this column via key-pruning.
-                    if (this.maxFdError == 0 && this.maxUccError == 0) {
+                    if (this.configuration.maxFdError == 0 && this.configuration.maxUccError == 0) {
                         vertex.setInvalid(true);
                     }
                 }
@@ -254,7 +231,7 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
         }
         levels.add(level1);
 
-        for (int arity = 2; arity <= this.maxArity || this.maxArity <= 0; arity++) {
+        for (int arity = 2; arity <= this.configuration.maxArity || this.configuration.maxArity <= 0; arity++) {
             long _startMillis = System.currentTimeMillis();
             LatticeLevel.clearLevelsBelow(levels, arity - 1);
             LatticeLevel.generateNextLevel(levels);
@@ -295,9 +272,9 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
 
                     final Column rhs = relation.getColumns().get(aIndex);
 
-                    double error = this.fdErrorMeasure.rate(lhs, rhs, xa, relation);
-                    if (error <= this.maxFdError) {
-                        this.registerFd(lhs, rhs, error);
+                    double error = fdErrorMeasure.rate(lhs, rhs, xa, relation);
+                    if (error <= this.configuration.maxFdError) {
+                        this.registerFd(lhs, rhs, error, Double.NaN);
                         xaVertex.getRhsCandidates().clear(rhs.getIndex());
                         if (error == 0) {
                             xaVertex.getRhsCandidates().and(lhs.getColumnIndices());
@@ -313,9 +290,9 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
 
                 // But first, check for keys.
                 if (vertex.isKeyCandidate()) {
-                    double uccError = this.uccErrorMeasure.rate(columns, null, null, relation);
-                    if (uccError <= this.maxUccError) {
-                        this.registerUcc(columns, uccError);
+                    double uccError = uccErrorMeasure.rate(columns, null, null, relation);
+                    if (uccError <= this.configuration.maxUccError) {
+                        this.registerUcc(columns, uccError, Double.NaN);
                         vertex.setKeyCandidate(false);
                         if (uccError == 0d) {
                             for (int rhsIndex = vertex.getRhsCandidates().nextSetBit(0);
@@ -332,7 +309,7 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
                                             break;
                                         }
                                     }
-                                    if (isRhsCandidate) this.registerFd(columns, rhs, 0d);
+                                    if (isRhsCandidate) this.registerFd(columns, rhs, 0d, Double.NaN);
                                 }
                             }
                             keyVertices.add(vertex);
@@ -342,7 +319,7 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
             }
             // We invalidate the node if we are looking for exact dependencies, because then we will discover
             // any remaining FDs towards this column via key-pruning.
-            if (this.maxFdError == 0 && this.maxUccError == 0) {
+            if (this.configuration.maxFdError == 0 && this.configuration.maxUccError == 0) {
                 // We need to lazily prune at the key vertices as we might otherwise lose FDs in sibling key vertices.
                 for (LatticeVertex keyVertex : keyVertices) {
                     keyVertex.getRhsCandidates().and(keyVertex.getVertical().getColumnIndices());
@@ -352,9 +329,7 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
         }
 
         this.printProfilingData(relation);
-        this.saveResults();
     }
-
 
 
     private void printProfilingData(Relation relation) {
@@ -365,33 +340,40 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
         System.out.printf(" Candidate generation: %,12d ms\n", _aprioriMillis);
     }
 
-    private void saveResults() {
-        if (this.outputFile == null) return;
+    @Override
+    public void setResultReceiver(FunctionalDependencyResultReceiver resultReceiver) {
+        if (this.metadataStore != null) return;
 
-        System.out.printf("Writing results to %s.\n", this.outputFile);
-
-        // Sort FDs by arity and RHS.
-        List<PartialFD> sortedPartialFDs = this.partialFDs.values().stream()
-                .flatMap(Collection::stream)
-                .sorted(Comparator.comparing(PartialFD::getArity).thenComparing(fd -> fd.rhs.getIndex()))
-                .collect(Collectors.toList());
-
-        try (FDPersistence.Writer writer = FDPersistence.createWriter(this.outputFile)) {
-            for (PartialFD partialFD : sortedPartialFDs) {
-                writer.write(partialFD);
+        this.fdConsumer = partialFD -> {
+            try {
+                resultReceiver.receiveResult(partialFD.toMetanomeFunctionalDependency());
+            } catch (CouldNotReceiveResultException | ColumnNameMismatchException e) {
+                throw new RuntimeException(String.format("Could not receive %s.", partialFD), e);
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        };
     }
 
-    protected void registerFd(Vertical lhs, Column rhs, double fdError) {
-//        System.out.printf("FD:  %s~>%s with error %.32f\n", lhs, rhs, fdError);
-        PartialFD fd = new PartialFD(lhs, rhs, fdError);
-        this.partialFDs.computeIfAbsent(rhs, key -> new ArrayList<>()).add(fd);
+    @Override
+    public void setResultReceiver(UniqueColumnCombinationResultReceiver resultReceiver) {
+        if (this.metadataStore != null) return;
 
-        // Feed the result receiver or metadata store.
-        if (this.metadataStore != null) {
+        this.uccConsumer = partialKey -> {
+            try {
+                resultReceiver.receiveResult(partialKey.toMetanomeUniqueColumnCobination());
+            } catch (CouldNotReceiveResultException | ColumnNameMismatchException e) {
+                throw new RuntimeException(String.format("Could not receive %s.", partialKey), e);
+            }
+        };
+    }
+
+
+    @Override
+    public void setMetadataStore(MetadataStore metadataStore) {
+        this.metadataStore = metadataStore;
+
+        // If we are given a MetadataStore, then we bypass the result receivers, because they do not support
+        // approximate/partial dependencies.
+        this.fdConsumer = partialFD -> {
             if (this.pfdConstraintcollection == null) {
                 this.pfdConstraintcollection = this.metadataStore.createConstraintCollection(
                         String.format("Partial FDs from %s (%s)", this.getClass().getSimpleName(), new Date()),
@@ -399,28 +381,12 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
                         this.table
                 );
             }
-            PartialFunctionalDependency partialFunctionalDependency = fd.toPartialFunctionalDependency(
+            PartialFunctionalDependency partialFunctionalDependency = partialFD.toPartialFunctionalDependency(
                     this.metadataStore.getIdUtils(), this.table
             );
             this.pfdConstraintcollection.add(partialFunctionalDependency);
-
-        } else {
-            try {
-                this.fdResultReceiver.receiveResult(fd.toMetanomeFunctionalDependency());
-            } catch (CouldNotReceiveResultException | ColumnNameMismatchException e) {
-                // Ignore but notify.
-                e.printStackTrace();
-            }
-        }
-    }
-
-    protected void registerUcc(Vertical vertical, double error) {
-//        System.out.printf("UCC:  %s with error %.32f\n", vertical, error);
-        PartialKey partialKey = new PartialKey(vertical, error);
-        this.partialKeys.add(partialKey);
-
-        // Feed the result receiver or metadata store.
-        if (this.metadataStore != null) {
+        };
+        this.uccConsumer = partialKey -> {
             if (this.puccConstraintcollection == null) {
                 this.puccConstraintcollection = this.metadataStore.createConstraintCollection(
                         String.format("Partial UCCs from %s (%s)", this.getClass().getSimpleName(), new Date()),
@@ -432,32 +398,13 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
                     this.metadataStore.getIdUtils(), this.table
             );
             this.puccConstraintcollection.add(partialUniqueColumnCombination);
-
-        } else {
-            try {
-                this.uccResultReceiver.receiveResult(partialKey.toMetanomeUniqueColumnCobination());
-            } catch (CouldNotReceiveResultException | ColumnNameMismatchException e) {
-                // Ignore but notify.
-                e.printStackTrace();
-            }
-        }
-    }
-
-
-    @Override
-    public void setResultReceiver(FunctionalDependencyResultReceiver resultReceiver) {
-        this.fdResultReceiver = resultReceiver;
-    }
-
-    @Override
-    public void setResultReceiver(UniqueColumnCombinationResultReceiver resultReceiver) {
-        this.uccResultReceiver = resultReceiver;
+        };
     }
 
     public MetanomePropertyLedger getPropertyLedger() {
         if (this.propertyLedger == null) {
             try {
-                this.propertyLedger = MetanomePropertyLedger.createFor(this);
+                this.propertyLedger = MetanomePropertyLedger.createFor(this.configuration);
             } catch (AlgorithmConfigurationException e) {
                 throw new RuntimeException("Could not initialize property ledger.", e);
             }
@@ -481,7 +428,7 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
     public void setStringConfigurationValue(String identifier, String... values)
             throws AlgorithmConfigurationException {
 
-        if (this.getPropertyLedger().configure(this, identifier, (Object[]) values)) {
+        if (this.getPropertyLedger().configure(this.configuration, identifier, (Object[]) values)) {
             return;
         }
 
@@ -490,7 +437,7 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
 
     @Override
     public void setBooleanConfigurationValue(String identifier, Boolean... values) throws AlgorithmConfigurationException {
-        if (this.getPropertyLedger().configure(this, identifier, (Object[]) values)) {
+        if (this.getPropertyLedger().configure(this.configuration, identifier, (Object[]) values)) {
             return;
         }
 
@@ -500,7 +447,7 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
 
     @Override
     public void setIntegerConfigurationValue(String identifier, Integer... values) throws AlgorithmConfigurationException {
-        if (this.getPropertyLedger().configure(this, identifier, (Object[]) values)) {
+        if (this.getPropertyLedger().configure(this.configuration, identifier, (Object[]) values)) {
             return;
         }
 
@@ -531,10 +478,5 @@ public class TaneX implements FunctionalDependencyAlgorithm, UniqueColumnCombina
         return "Prototype to detect meaningful (partial) functional dependencies.";
     }
 
-
-    @Override
-    public void setMetadataStore(MetadataStore metadataStore) {
-        this.metadataStore = metadataStore;
-    }
 
 }

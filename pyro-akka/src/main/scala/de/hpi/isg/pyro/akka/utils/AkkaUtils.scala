@@ -9,6 +9,11 @@ import com.typesafe.config.{Config, ConfigFactory}
 object AkkaUtils {
 
   /**
+    * The system name used by Pyro for [[ActorSystem]]s.
+    */
+  val systemName = "pyro"
+
+  /**
     * Creates a Akka [[Config]] for a local setup.
     * @return the [[Config]]
     */
