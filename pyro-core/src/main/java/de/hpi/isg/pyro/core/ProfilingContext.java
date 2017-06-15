@@ -1,19 +1,18 @@
 package de.hpi.isg.pyro.core;
 
-import de.hpi.isg.pyro.model.Column;
-import de.hpi.isg.pyro.model.ColumnLayoutRelation;
-import de.hpi.isg.pyro.model.Vertical;
+import de.hpi.isg.pyro.model.*;
 import de.hpi.isg.pyro.util.*;
 
 import java.lang.ref.Reference;
 import java.lang.ref.SoftReference;
 import java.lang.ref.WeakReference;
 import java.util.*;
+import java.util.function.Consumer;
 
 /**
  * This class contains the relevant data to operate Pyro within a JVM.
  */
-public class ProfilingContext {
+public class ProfilingContext extends DependencyConsumer {
 
     /**
      * The configuration of Pyro.
@@ -38,7 +37,7 @@ public class ProfilingContext {
     /**
      * The {@link ColumnLayoutRelation} to be profiled.
      */
-    private ColumnLayoutRelation relation;
+    ColumnLayoutRelation relation;
 
     /**
      * Provides randomness.
@@ -49,9 +48,16 @@ public class ProfilingContext {
      * Creates a new instance.
      *
      * @param configuration the configuration for Pyro
+     * @param relation      that should be profiled
      */
-    public ProfilingContext(Configuration configuration) {
+    public ProfilingContext(Configuration configuration,
+                            ColumnLayoutRelation relation,
+                            Consumer<PartialKey> uccConsumer,
+                            Consumer<PartialFD> fdConsumer) {
         this.configuration = configuration;
+        this.relation = relation;
+        this.uccConsumer = uccConsumer;
+        this.fdConsumer = fdConsumer;
     }
 
     /**

@@ -12,51 +12,59 @@ public class Configuration extends AbstractPFDConfiguration {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     @MetanomeProperty
-    int parallelism = 0;
+    public int parallelism = 0;
 
     @MetanomeProperty
-    boolean isDeferFailedLaunchPads = true;
+    public boolean isDeferFailedLaunchPads = true;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Sampling settings.
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     @MetanomeProperty
-    int sampleSize = 1_000;
+    public int sampleSize = 1_000;
 
     @MetanomeProperty
-    double sampleBooster = 10;
+    public double sampleBooster = 10;
 
     @MetanomeProperty
-    Integer seed = null;
+    public Integer seed = null;
 
     @MetanomeProperty
-    double estimateConfidence = 0.9;
+    public double estimateConfidence = 0.9;
 
     @MetanomeProperty
-    int randomAscendThreads = 2;
+    public int randomAscendThreads = 2;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Cache settings.
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     @MetanomeProperty
-    boolean isCacheIntermediatePLIs = false;
+    public boolean isCacheIntermediatePLIs = false;
 
     @MetanomeProperty
-    boolean isUseWeakReferencesForPlis = true;
+    public boolean isUseWeakReferencesForPlis = true;
 
     @MetanomeProperty
-    boolean isUseWeakReferencesForSamples = false;
+    public boolean isUseWeakReferencesForSamples = false;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Miscellaneous settings.
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     @MetanomeProperty
-    boolean isPauseInitially = false;
+    public boolean isPauseInitially = false;
 
     @MetanomeProperty
-    boolean isCheckEstimates = false;
-    
+    public boolean isCheckEstimates = false;
+
+    /**
+     * If Pyro should be run in the distributed mode, then this property should include a semicolon separated list of
+     * hosts to run on, e.g, {@code "worker1:35711;worker2:35711;worker3:35711"}, with the first host being the head of
+     * the operation (here: {@code worker1:35711}). Otherwise, this property should not be specified.
+     */
+    @MetanomeProperty
+    public String hosts = null;
+
 }

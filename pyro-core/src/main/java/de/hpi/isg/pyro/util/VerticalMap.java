@@ -22,8 +22,6 @@ public class VerticalMap<Value> implements Map<Vertical, Value> {
         this.setTrie = new SetTrie<>(this.relation.getNumColumns());
     }
 
-
-
     @Override
     public int size() {
         return this.size;

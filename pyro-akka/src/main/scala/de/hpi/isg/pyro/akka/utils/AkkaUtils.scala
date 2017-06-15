@@ -1,6 +1,6 @@
 package de.hpi.isg.pyro.akka.utils
 
-import akka.actor.{ActorSystem, Props}
+import akka.actor.ActorSystem
 import com.typesafe.config.{Config, ConfigFactory}
 
 /**
@@ -15,6 +15,7 @@ object AkkaUtils {
 
   /**
     * Creates a Akka [[Config]] for a local setup.
+    *
     * @return the [[Config]]
     */
   def getLocalAkkaConfig: Config = {
@@ -27,6 +28,15 @@ object AkkaUtils {
 
   /**
     * Creates a remote-capable, TCP-based [[ActorSystem]].
+    *
+    * @param host the host that the [[ActorSystem]] should bind to
+    * @return the [[ActorSystem]]
+    */
+  def getRemoteAkkaConfig(host: Host): Config = getRemoteAkkaConfig(host.hostName, host.port)
+
+  /**
+    * Creates a remote-capable, TCP-based [[ActorSystem]].
+    *
     * @param host the host name that the [[ActorSystem]] should bind to
     * @param port the port that the [[ActorSystem]] should bind to
     * @return the [[ActorSystem]]

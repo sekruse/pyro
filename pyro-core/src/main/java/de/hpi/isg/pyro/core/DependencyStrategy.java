@@ -57,10 +57,11 @@ abstract public class DependencyStrategy {
     /**
      * Register a dependency.
      *
-     * @param vertical entails the dependency
-     * @param error    the calculated error of the dependency
+     * @param vertical      entails the dependency
+     * @param error         the calculated error of the dependency
+     * @param discoveryUnit that discovered the dependency
      */
-    abstract void registerDependency(Vertical vertical, double error);
+    abstract void registerDependency(Vertical vertical, double error, DependencyConsumer discoveryUnit);
 
     /**
      * Decide whether it is worthwhile to create a focused sampling on the given {@link Vertical}.

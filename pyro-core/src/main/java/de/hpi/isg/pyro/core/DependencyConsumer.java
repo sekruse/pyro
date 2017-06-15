@@ -8,7 +8,7 @@ import java.util.function.Consumer;
  * A discovery unit provides the interface and relevant data structures to perform a dependency discovery within some
  * scope.
  */
-abstract public class AbstractDiscoveryUnit {
+public class DependencyConsumer {
 
     /**
      * Sink for discovered partial FDs.
@@ -41,4 +41,11 @@ abstract public class AbstractDiscoveryUnit {
         return partialKey;
     }
 
+    public void setFdConsumer(Consumer<PartialFD> fdConsumer) {
+        this.fdConsumer = fdConsumer;
+    }
+
+    public void setUccConsumer(Consumer<PartialKey> uccConsumer) {
+        this.uccConsumer = uccConsumer;
+    }
 }

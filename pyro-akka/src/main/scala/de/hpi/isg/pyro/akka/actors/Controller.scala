@@ -2,7 +2,13 @@ package de.hpi.isg.pyro.akka.actors
 
 import akka.actor.{Actor, ActorRef, ActorSystem, Address, Deploy, Props}
 import akka.remote.RemoteScope
-import de.hpi.isg.pyro.akka.messages.{NodeManagerReady, StartProfiling, WorkersReady}
+import de.hpi.isg.pyro.akka.messages.{ColumnReport, NodeManagerInitialization, NodeManagerState, ProfilingTask}
+import de.hpi.isg.pyro.akka.utils.Host
+import de.hpi.isg.pyro.core.{Configuration, FdG1Strategy, KeyG1Strategy, SearchSpace}
+import de.hpi.isg.pyro.model.Column
+import de.metanome.algorithm_integration.input.RelationalInputGenerator
+import de.metanome.backend.result_receiver.ResultReceiver
+import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 
@@ -12,62 +18,125 @@ import scala.collection.mutable
 class Controller extends Actor with Printing {
 
   /**
-    * References to the controlled [[NodeManager]]s.
+    * Logger for this instance.
     */
-  var nodeManagers: mutable.Map[ActorRef, Int] = mutable.Map()
+  private val logger = LoggerFactory.getLogger(getClass)
 
   /**
-    * The file that is currently being profiled.
+    * Keeps track of the [[Configuration]] for the profiling.
     */
-  var path: String = _
+  var configuration: Configuration = _
 
+  /**
+    * References to the controlled [[NodeManager]]s. Additionally, keeps track of how many idle [[Worker]]s there
+    * are per [[NodeManager]].
+    */
+  var numIdleWorkersPerNodeManager: mutable.Map[ActorRef, Int] = mutable.Map()
+
+  /**
+    * Keeps track of all uncompleted [[SearchSpace]]s including pointers to which [[NodeManager]]s are currently
+    * processing them.
+    */
+  var searchSpaces: mutable.Map[SearchSpace, mutable.Set[ActorRef]] = _
 
   override def receive = {
-    case StartProfiling(_path, hosts) =>
-      this.path = path
-
-      // Create node managers.
+    case NodeManagerInitialization(hosts) =>
       if (hosts.isEmpty) {
         // Create a local node manager only.
-        actorPrint("Create local node manager.")
+        actorPrint("Creating a local node manager...")
         val localNodeManager = context.actorOf(Props[NodeManager])
-        nodeManagers(localNodeManager) = 0
+        numIdleWorkersPerNodeManager(localNodeManager) = 0
       } else {
         // Create remote node managers.
-        hosts.foreach { case (host, port) =>
-          actorPrint(s"Create remote node manager at $host:$port.")
+        hosts.foreach { case Host(host, port) =>
+          actorPrint(s"Creating a remote node manager at $host:$port...")
           val deploy = new Deploy(RemoteScope(new Address("akka.tcp", "pyro", host, port)))
           val remoteNodeManager = context.actorOf(Props[NodeManager].withDeploy(deploy))
-          nodeManagers(remoteNodeManager) = 0
+          numIdleWorkersPerNodeManager(remoteNodeManager) = 0
         }
       }
 
+    case NodeManagerState(numIdleWorkers) =>
+      numIdleWorkers match {
+        case Some(num) =>
+          numIdleWorkersPerNodeManager(sender()) = num
+          if (searchSpaces != null) assignSearchSpaces()
+      }
+
+    case ProfilingTask(conf, inputPath, inputGenerator) =>
       // Start the node managers.
-      nodeManagers.foreach(_._1 ! StartProfiling(_path, Array()))
+      numIdleWorkersPerNodeManager.keysIterator.foreach(_ ! ProfilingTask(conf, inputPath, inputGenerator))
+      configuration = conf
 
-      // Change mode.
-      context.become(started)
-
-    case NodeManagerReady() =>
-      nodeManagers.getOrElseUpdate(sender(), 0)
-
-    case WorkersReady(n) =>
-      nodeManagers(sender()) = n
+    case ColumnReport(columns) =>
+      if (searchSpaces == null) {
+        // Only handle the message if we have not yet initialized the search spaces.
+        initializeSearchSpaces(columns)
+        assignSearchSpaces()
+      }
 
     case other =>
       sys.error(s"[${self.path}] Cannot handle $other")
   }
 
-  def started: Actor.Receive = {
-    case NodeManagerReady() =>
-      sender() ! StartProfiling(path, Array())
-      nodeManagers.getOrElseUpdate(sender(), 0)
+  /**
+    * Initialize the [[searchSpaces]].
+    *
+    * @param columns of the relation to be profiled
+    */
+  private def initializeSearchSpaces(columns: Seq[Column]): Unit = {
+    searchSpaces = mutable.Map()
+    // Initialize the UCC search space.
+    if (configuration.isFindKeys) {
+      configuration.uccErrorMeasure match {
+        case "g1prime" => searchSpaces(new SearchSpace(new KeyG1Strategy(configuration.maxUccError))) = mutable.Set()
+        case other => sys.error(s"Unsupported error measure ($other).")
+      }
 
-    case WorkersReady(n) =>
-      nodeManagers(sender()) = n
-      actorPrint(s"Should send $n tasks to ${sender().path}")
+    }
+    // Initialize the FD search spaces.
+    if (configuration.isFindFds) {
+      columns foreach { column =>
+        configuration.fdErrorMeasure match {
+          case "g1prime" =>
+            val strategy = new FdG1Strategy(column, configuration.maxFdError)
+            // TODO: Check 0-ary FD at some worker.
+            searchSpaces(new SearchSpace(strategy)) = mutable.Set()
+        }
+      }
+    }
+  }
 
-    case other => sys.error(s"[${self.path}] Cannot handle $other")
+  /**
+    * Assign unprocessed [[SearchSpace]]s in [[searchSpaces]] to [[NodeManager]]s with idling [[Worker]]s (as
+    * constituted in [[numIdleWorkersPerNodeManager]]).
+    */
+  private def assignSearchSpaces(): Unit = {
+    // Collect the unassigned search spaces.
+    var unassignedSearchSpaces = searchSpaces.filter(_._2.isEmpty).keys.toList
+
+    // Create a priority queue of available nodes.
+    val nodeQueue = mutable.PriorityQueue[(ActorRef, Int)]()(Ordering.by(-_._2))
+    numIdleWorkersPerNodeManager.filter(_._2 > 0).foreach(nodeQueue += _)
+
+    // Distribute as many search spaces as possible.
+    while (unassignedSearchSpaces.nonEmpty && nodeQueue.nonEmpty) {
+      // Get a search space.
+      val searchSpace = unassignedSearchSpaces.head
+      unassignedSearchSpaces = unassignedSearchSpaces.tail
+
+      // Get a node.
+      val (node, numIdleWorkers) = nodeQueue.dequeue()
+
+      // Assign the search space to the node.
+      actorPrint(s"Assigning $searchSpace to $node (has $numIdleWorkers idle workers)")
+      node ! searchSpace
+
+      // Update the data structures.
+      val newNumIdleWorkers = numIdleWorkers - 1
+      numIdleWorkersPerNodeManager(node) = newNumIdleWorkers
+      if (newNumIdleWorkers > 0) nodeQueue += node -> newNumIdleWorkers
+    }
   }
 
 }
@@ -80,12 +149,23 @@ object Controller {
   /**
     * Sets up a [[Controller]] in the [[ActorSystem]] and starts it.
     *
-    * @param actorSystem the [[ActorSystem]]
-    * @param path        the path of the dataset to be profiled
+    * @param actorSystem   the [[ActorSystem]]
+    * @param configuration the [[Configuration]] of what to profile and how
     */
-  def start(actorSystem: ActorSystem, path: String, hosts: Array[(String, Int)]) = {
+  def start(actorSystem: ActorSystem,
+            configuration: Configuration,
+            inputPath: String,
+            inputGenerator: Option[RelationalInputGenerator] = None,
+            resultReceiver: Option[ResultReceiver] = None,
+            hosts: Array[Host] = Array()) = {
+    // Initialize the controller.
     val controller = actorSystem.actorOf(Props[Controller], "controller")
-    controller ! StartProfiling(path, hosts)
+
+    // Initialize the node managers.
+    controller ! NodeManagerInitialization(hosts)
+
+    // Initiate the profiling task.
+    controller ! ProfilingTask(configuration, inputPath, inputGenerator)
   }
 
 }

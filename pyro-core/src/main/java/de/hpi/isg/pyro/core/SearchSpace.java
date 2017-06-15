@@ -55,7 +55,7 @@ public class SearchSpace {
      *
      * @param strategy defines the search within the new instance
      */
-    SearchSpace(DependencyStrategy strategy) {
+    public SearchSpace(DependencyStrategy strategy) {
         this(strategy, null, new SynchronizedVerticalMap<>(strategy.context.getRelation()), 0, 1d);
 
         // Initialize the launchPads.
@@ -72,7 +72,7 @@ public class SearchSpace {
      *
      * @param strategy defines the search within the new instance
      */
-    SearchSpace(DependencyStrategy strategy, VerticalMap<Vertical> scope, VerticalMap<VerticalInfo> globalVisitees, int recursionDepth, double sampleBoost) {
+    public SearchSpace(DependencyStrategy strategy, VerticalMap<Vertical> scope, VerticalMap<VerticalInfo> globalVisitees, int recursionDepth, double sampleBoost) {
         this.strategy = strategy;
         this.scope = scope;
         this.globalVisitees = globalVisitees;
@@ -559,7 +559,7 @@ public class SearchSpace {
                         recursionDepth, strategy.format(allegedMinDep), info.error
                 );
                 globalVisitees.put(allegedMinDep, info);
-                strategy.registerDependency(allegedMinDep, info.error);
+                strategy.registerDependency(allegedMinDep, info.error, this.context);
             }
             if (!info.isExtremal) numUncertainMinDeps++;
         }
@@ -626,7 +626,7 @@ public class SearchSpace {
                     );
                     info.isExtremal = true;
                     globalVisitees.put(allegedMinDep, info);
-                    strategy.registerDependency(allegedMinDep, info.error);
+                    strategy.registerDependency(allegedMinDep, info.error, this.context);
                 }
             }
 
@@ -677,7 +677,7 @@ public class SearchSpace {
                         );
                     info.isExtremal = true;
                     globalVisitees.put(allegedMinDep, info);
-                    strategy.registerDependency(allegedMinDep, info.error);
+                    strategy.registerDependency(allegedMinDep, info.error, this.context);
                 }
             }
         }

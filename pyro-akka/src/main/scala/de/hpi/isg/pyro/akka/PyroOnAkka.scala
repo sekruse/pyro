@@ -2,34 +2,39 @@ package de.hpi.isg.pyro.akka
 
 import akka.actor.ActorSystem
 import de.hpi.isg.pyro.akka.actors.{Controller, NodeManager}
-import de.hpi.isg.pyro.akka.utils.AkkaUtils
+import de.hpi.isg.pyro.akka.utils.{AkkaUtils, Host}
+import de.hpi.isg.pyro.core.Configuration
+import de.metanome.algorithm_integration.input.RelationalInputGenerator
+import de.metanome.backend.result_receiver.ResultReceiver
 
 /**
-  * TODO
+  * This is the main entry point to run Pyro on Akka.
   */
 object PyroOnAkka {
 
-  def main(args: Array[String]): Unit = {
-    // Parse the hosts to run on.
-    val hosts = args.map { arg =>
-      val Array(host, port) = arg.split(":")
-      (host, port.toInt)
-    }
+  def apply(configuration: Configuration,
+            inputPath: String,
+            inputGenerator: Option[RelationalInputGenerator] = None,
+            resultReceiver: Option[ResultReceiver] = None,
+            hosts: Array[Host] = Array()): Unit = {
 
     // Create the actor sytem.
     val system = ActorSystem("pyro",
       if (hosts.isEmpty) AkkaUtils.getLocalAkkaConfig
-      else AkkaUtils.getRemoteAkkaConfig(hosts(0)._1, hosts(0)._2)
+      else AkkaUtils.getRemoteAkkaConfig(hosts.head)
     )
 
     // Set up a local node manager only.
     NodeManager.createOn(system)
 
     // Start a controller for the profiling.
-    Controller.start(system, "/my/file/to/profile", hosts)
+    Controller.start(system, configuration, inputPath, inputGenerator, resultReceiver, hosts)
 
-    Thread.sleep(5000)
-    system.terminate()
+//    Thread.sleep(5000)
+//    system.terminate()
+    Thread.sleep(60 * 60 * 1000) // 1h
   }
+
+
 
 }
