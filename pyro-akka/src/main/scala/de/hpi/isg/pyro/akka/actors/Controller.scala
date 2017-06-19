@@ -4,7 +4,7 @@ import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Address, Deploy, 
 import akka.remote.RemoteScope
 import akka.util.Timeout
 import de.hpi.isg.pyro.akka.actors.Collector.SignalWhenDone
-import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeFromInputGenerator, ShutDownWithReport}
+import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeFromInputGenerator, ReportNumDependencies}
 import de.hpi.isg.pyro.akka.utils.{AskingMany, Host}
 import de.hpi.isg.pyro.core.{Configuration, FdG1Strategy, KeyG1Strategy, SearchSpace}
 import de.hpi.isg.pyro.model.{PartialFD, PartialKey, RelationSchema}
@@ -27,7 +27,8 @@ class Controller(configuration: Configuration,
                  inputGenerator: Option[RelationalInputGenerator] = None,
                  uccConsumer: Option[PartialKey => _] = None,
                  fdConsumer: Option[PartialFD => _] = None,
-                 hosts: Array[Host] = Array())
+                 hosts: Array[Host] = Array(),
+                 onSuccess: () => Unit)
   extends Actor with ActorLogging with AskingMany {
 
   import Controller._
@@ -120,7 +121,7 @@ class Controller(configuration: Configuration,
         if (searchSpaces.isEmpty && nodeManagerStates.valuesIterator.forall {
           case NodeManagerState(_, numSearchSpaces) => numSearchSpaces == 0
         }) {
-          val numDependencies = askAll[NodeManagerReport](nodeManagerStates.keys, ShutDownWithReport).values
+          val numDependencies = askAll[NodeManagerReport](nodeManagerStates.keys, ReportNumDependencies).values
             .map(_.numDiscoveredDependencies)
             .sum
           log.info("Workers reported {} dependencies.", numDependencies)
@@ -133,6 +134,7 @@ class Controller(configuration: Configuration,
       searchSpaces -= searchSpace
 
     case CollectorComplete =>
+      onSuccess()
       context.system.terminate()
 
     case other =>
@@ -200,6 +202,7 @@ class Controller(configuration: Configuration,
       if (newState.load < 0) nodeQueue += node -> newState
     }
 
+    // TODO: Do this in a synchonous fashion?
     // Finally, dispatch the assignments.
     assignments.foreach {
       case (node, assignedSearchSpaces) => node ! assignedSearchSpaces
@@ -225,11 +228,12 @@ object Controller {
             inputGenerator: Option[RelationalInputGenerator] = None,
             uccConsumer: Option[PartialKey => _] = None,
             fdConsumer: Option[PartialFD => _] = None,
-            hosts: Array[Host] = Array()) = {
+            hosts: Array[Host] = Array(),
+            onSuccess: () => Unit) = {
 
     // Initialize the controller.
     val controller = actorSystem.actorOf(
-      Props(new Controller(configuration, inputPath, inputGenerator, uccConsumer, fdConsumer, hosts)),
+      Props(new Controller(configuration, inputPath, inputGenerator, uccConsumer, fdConsumer, hosts, onSuccess)),
       "controller"
     )
 

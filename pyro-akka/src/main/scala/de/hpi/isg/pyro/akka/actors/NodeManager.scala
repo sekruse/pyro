@@ -2,10 +2,10 @@ package de.hpi.isg.pyro.akka.actors
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, Props}
 import akka.routing.SmallestMailboxPool
 import de.hpi.isg.pyro.akka.actors.Controller.{NodeManagerReport, NodeManagerState, SearchSpaceComplete, SearchSpaceReport}
-import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeFromInputGenerator, ShutDownWithReport, WorkerStopped}
+import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeFromInputGenerator, ReportNumDependencies, WorkerStopped}
 import de.hpi.isg.pyro.akka.utils.JavaScalaCompatibility._
 import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
 import de.hpi.isg.pyro.model.{ColumnLayoutRelationData, PartialFD, PartialKey}
@@ -56,6 +56,10 @@ class NodeManager(controller: ActorRef,
     */
   val numDiscoveredDependencies = new AtomicInteger(0)
 
+  override def preStart(): Unit = {
+    super.preStart()
+    context.system.eventStream.subscribe(self, classOf[DeadLetter])
+  }
 
   override def receive = {
     case InitializeFromInputGenerator =>
@@ -109,9 +113,11 @@ class NodeManager(controller: ActorRef,
         controller ! NodeManagerState(numWorkers = numWorkers, numSearchSpaces = numAssignedWorkers.size)
       }
 
-    case ShutDownWithReport =>
+    case ReportNumDependencies =>
       sender() ! NodeManagerReport(numDiscoveredDependencies.get)
 
+    case deadLetter: DeadLetter =>
+      sys.error(s"Encountered $deadLetter.")
 
     case other => sys.error(s"[${self.path}] Unknown message: $other")
   }
@@ -217,9 +223,9 @@ object NodeManager {
   case object InitializeFromInputGenerator
 
   /**
-    * This message asks a [[NodeManager]] to shut down and report the number of dependencies its [[Worker]]s discovered.
+    * This message asks a [[NodeManager]] to report the number of dependencies its [[Worker]]s discovered.
     */
-  case object ShutDownWithReport
+  case object ReportNumDependencies
 
   /**
     * This message tells that some [[Worker]] stopped processing the given [[SearchSpace]].

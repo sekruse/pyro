@@ -6,7 +6,7 @@ import java.util
 import akka.actor.ActorSystem
 import de.hpi.isg.mdms.clients.MetacrateClient
 import de.hpi.isg.mdms.model.MetadataStore
-import de.hpi.isg.pyro.akka.actors.{Controller, NodeManager}
+import de.hpi.isg.pyro.akka.actors.Controller
 import de.hpi.isg.pyro.akka.utils.{AkkaUtils, Host}
 import de.hpi.isg.pyro.core.Configuration
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger
@@ -122,17 +122,24 @@ class PyroOnAkka extends MetacrateClient
       else AkkaUtils.getRemoteAkkaConfig(hosts.head)
     )
 
+    object SuccessFlag { private[PyroOnAkka] var isSuccess = false }
+
     // Start a controller for the profiling.
     Controller.start(system, configuration,
       inputPath = "(unknown path)",
       inputGenerator = Some(inputGenerator),
-      uccConsumer =  Some(println),
+      uccConsumer = Some(println),
       fdConsumer = Some(println),
-      hosts = hosts)
+      hosts = hosts,
+      onSuccess = () => SuccessFlag.isSuccess = true
+    )
 
     // Wait for Akka to finish its job.
-    Await.ready(system.whenTerminated, 365.days)
+    Await.ready(system.whenTerminated, 365 days)
     logger.info(f"Profiled with Pyro in ${System.currentTimeMillis - startMillis}%,d ms.")
+    if (!SuccessFlag.isSuccess) {
+      logger.error("Success flag is not set.")
+    }
   }
 }
 
