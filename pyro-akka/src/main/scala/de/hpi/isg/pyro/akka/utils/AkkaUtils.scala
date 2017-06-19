@@ -1,7 +1,8 @@
 package de.hpi.isg.pyro.akka.utils
 
 import akka.actor.AbstractActor.ActorContext
-import akka.actor.{ActorRef, ActorSystem}
+import akka.actor.SupervisorStrategy.Escalate
+import akka.actor.{ActorRef, ActorSystem, OneForOneStrategy, SupervisorStrategy}
 import akka.pattern.ask
 import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigFactory}
@@ -94,6 +95,15 @@ object AkkaUtils {
         case reply: T => callback(actor, reply)
       }
     }
+  }
+
+  /**
+    * Returns a [[SupervisorStrategy]] that immediately escalates.
+    *
+    * @return the [[SupervisorStrategy]]
+    */
+  def escalateSupervisorStrategy: SupervisorStrategy = OneForOneStrategy() {
+    case _ => Escalate
   }
 
 }

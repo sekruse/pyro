@@ -10,7 +10,7 @@ import de.hpi.isg.pyro.akka.actors.Controller
 import de.hpi.isg.pyro.akka.utils.{AkkaUtils, Host}
 import de.hpi.isg.pyro.core.Configuration
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger
-import de.metanome.algorithm_integration.AlgorithmConfigurationException
+import de.metanome.algorithm_integration.{AlgorithmConfigurationException, AlgorithmExecutionException}
 import de.metanome.algorithm_integration.algorithm_types._
 import de.metanome.algorithm_integration.configuration.{ConfigurationRequirement, ConfigurationRequirementFileInput, ConfigurationSetting}
 import de.metanome.algorithm_integration.input.RelationalInputGenerator
@@ -137,9 +137,7 @@ class PyroOnAkka extends MetacrateClient
     // Wait for Akka to finish its job.
     Await.ready(system.whenTerminated, 365 days)
     logger.info(f"Profiled with Pyro in ${System.currentTimeMillis - startMillis}%,d ms.")
-    if (!SuccessFlag.isSuccess) {
-      logger.error("Success flag is not set.")
-    }
+    if (!SuccessFlag.isSuccess) throw new AlgorithmExecutionException("Success flag is not set.")
   }
 }
 

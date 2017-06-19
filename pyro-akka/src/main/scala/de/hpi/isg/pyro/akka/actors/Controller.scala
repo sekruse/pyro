@@ -1,6 +1,7 @@
 package de.hpi.isg.pyro.akka.actors
 
-import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Address, Deploy, Props}
+import akka.actor.SupervisorStrategy.{Decider, Escalate, Stop}
+import akka.actor.{Actor, ActorContext, ActorLogging, ActorRef, ActorSystem, Address, AllForOneStrategy, ChildRestartStats, Deploy, OneForOneStrategy, Props, SupervisorStrategy}
 import akka.remote.RemoteScope
 import akka.util.Timeout
 import de.hpi.isg.pyro.akka.actors.Collector.SignalWhenDone
@@ -139,6 +140,14 @@ class Controller(configuration: Configuration,
 
     case other =>
       sys.error(s"[${self.path}] Cannot handle $other")
+  }
+
+  override val supervisorStrategy: SupervisorStrategy = OneForOneStrategy() {
+    case e: Throwable =>
+      log.error(e, "Exception encountered.")
+      log.info("Shutting down due to exception.")
+      context.system.terminate()
+      Escalate
   }
 
   /**
@@ -307,6 +316,5 @@ object Controller {
     * This message signals that the [[Collector]] has collected all dependencies.
     */
   case object CollectorComplete
-
 
 }

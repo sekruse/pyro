@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import akka.actor.{Actor, ActorLogging, Props}
 import de.hpi.isg.pyro.akka.actors.Collector.SignalWhenDone
 import de.hpi.isg.pyro.akka.actors.Controller.CollectorComplete
+import de.hpi.isg.pyro.akka.utils.AkkaUtils
 import de.hpi.isg.pyro.model.{PartialFD, PartialKey}
 
 /**
@@ -19,6 +20,8 @@ class Collector(optFdConsumer: Option[PartialFD => _],
 
   private val fdConsumer = optFdConsumer.getOrElse({ _: PartialFD => })
   private val uccConsumer = optUccConsumer.getOrElse({ _: PartialKey => })
+
+  override val supervisorStrategy = AkkaUtils.escalateSupervisorStrategy
 
   override def receive = {
     case fd: PartialFD =>

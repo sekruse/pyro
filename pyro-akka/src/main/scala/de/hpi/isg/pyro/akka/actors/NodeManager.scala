@@ -2,10 +2,12 @@ package de.hpi.isg.pyro.akka.actors
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, Props}
+import akka.actor.SupervisorStrategy.Escalate
+import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, OneForOneStrategy, Props, SupervisorStrategy}
 import akka.routing.SmallestMailboxPool
 import de.hpi.isg.pyro.akka.actors.Controller.{NodeManagerReport, NodeManagerState, SearchSpaceComplete, SearchSpaceReport}
 import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeFromInputGenerator, ReportNumDependencies, WorkerStopped}
+import de.hpi.isg.pyro.akka.utils.AkkaUtils
 import de.hpi.isg.pyro.akka.utils.JavaScalaCompatibility._
 import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
 import de.hpi.isg.pyro.model.{ColumnLayoutRelationData, PartialFD, PartialKey}
@@ -55,6 +57,8 @@ class NodeManager(controller: ActorRef,
     * Counts the number of dependencies discovered.
     */
   val numDiscoveredDependencies = new AtomicInteger(0)
+
+  override val supervisorStrategy: SupervisorStrategy = AkkaUtils.escalateSupervisorStrategy
 
   override def preStart(): Unit = {
     super.preStart()
@@ -151,7 +155,7 @@ class NodeManager(controller: ActorRef,
     numWorkers =
       if (configuration.parallelism > 0) configuration.parallelism
       else Runtime.getRuntime.availableProcessors
-    workerPool = context.system.actorOf(SmallestMailboxPool(numWorkers).props(Worker.props(profilingContext)), "worker-pool")
+    workerPool = context.actorOf(SmallestMailboxPool(numWorkers).props(Worker.props(profilingContext)), "worker-pool")
     numIdleWorkers = numWorkers
     log.info(s"Started $numWorkers workers.")
 
