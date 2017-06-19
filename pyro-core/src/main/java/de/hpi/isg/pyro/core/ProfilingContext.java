@@ -22,12 +22,12 @@ public class ProfilingContext extends DependencyConsumer {
     /**
      * Caches {@link PositionListIndex}es.
      */
-    PLICache pliCache;
+    final PLICache pliCache;
 
     /**
      * Caches {@link AgreeSetSample}s.
      */
-    VerticalMap<Reference<AgreeSetSample>> agreeSetSamples;
+    final VerticalMap<Reference<AgreeSetSample>> agreeSetSamples;
 
     /**
      * Defines {@link AgreeSetSample}s that should not be cleared.
@@ -35,29 +35,55 @@ public class ProfilingContext extends DependencyConsumer {
     final Collection<AgreeSetSample> stickyAgreeSetSamples = new LinkedList<>();
 
     /**
-     * The {@link ColumnLayoutRelation} to be profiled.
+     * The {@link ColumnLayoutRelationData} to be profiled.
      */
-    ColumnLayoutRelation relation;
+    final ColumnLayoutRelationData relationData;
 
     /**
      * Provides randomness.
      */
-    Random random;
+    final Random random;
 
     /**
      * Creates a new instance.
      *
      * @param configuration the configuration for Pyro
-     * @param relation      that should be profiled
+     * @param relationData  that should be profiled
      */
     public ProfilingContext(Configuration configuration,
-                            ColumnLayoutRelation relation,
+                            ColumnLayoutRelationData relationData,
                             Consumer<PartialKey> uccConsumer,
                             Consumer<PartialFD> fdConsumer) {
         this.configuration = configuration;
-        this.relation = relation;
+        this.relationData = relationData;
         this.uccConsumer = uccConsumer;
         this.fdConsumer = fdConsumer;
+        this.random = this.configuration.seed == null ? new Random() : new Random(this.configuration.seed);
+        this.pliCache = new PLICache(
+                relationData,
+                configuration.parallelism != 1,
+                configuration.isUseWeakReferencesForPlis ? WeakReference::new : SoftReference::new
+        );
+
+        if (configuration.sampleSize > 0) {
+            // Create the initial samples.
+            RelationSchema schema = this.relationData.getSchema();
+            this.agreeSetSamples = configuration.parallelism > 1 ?
+                    new SynchronizedVerticalMap<>(schema) :
+                    new VerticalMap<>(schema);
+
+            // Make sure to always have a cover of correlation providers (i.e., make the GC always spare the initial providers).
+            for (Column column : schema.getColumns()) {
+                // TODO: Create samples in parallel.
+                AgreeSetSample sample = this.createFocusedSample(column, 1d, false);
+                synchronized (this.stickyAgreeSetSamples) {
+                    this.stickyAgreeSetSamples.add(sample);
+                }
+            }
+        } else {
+            this.agreeSetSamples = null;
+        }
+
     }
 
     /**
@@ -82,9 +108,9 @@ public class ProfilingContext extends DependencyConsumer {
      */
     AgreeSetSample createFocusedSample(Vertical focus, double boostFactor, boolean isUseWeakReference) {
         ListAgreeSetSample sample = ListAgreeSetSample.createFocusedFor(
-                this.relation,
+                this.relationData,
                 focus,
-                this.pliCache.getPositionListIndex(focus),
+                this.pliCache.getOrCreateFor(focus),
                 (int) (this.configuration.sampleSize * boostFactor),
                 this.random
         );
@@ -138,12 +164,22 @@ public class ProfilingContext extends DependencyConsumer {
     }
 
     /**
-     * Retrieve the {@link ColumnLayoutRelation} associated with this instance.
+     * Retrieve the {@link ColumnLayoutRelationData} associated with this instance.
      *
-     * @return the {@link ColumnLayoutRelation}
+     * @return the {@link ColumnLayoutRelationData}
      */
-    public ColumnLayoutRelation getRelation() {
-        return this.relation;
+    public ColumnLayoutRelationData getRelationData() {
+        return this.relationData;
+    }
+
+
+    /**
+     * Retrieve the {@link RelationSchema} associated with this instance.
+     *
+     * @return the {@link RelationSchema}
+     */
+    public RelationSchema getSchema() {
+        return this.relationData.getSchema();
     }
 
 }

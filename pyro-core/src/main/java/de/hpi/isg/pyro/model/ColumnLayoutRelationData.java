@@ -17,22 +17,27 @@ import java.util.List;
 /**
  * Represents a relational table.
  */
-public class ColumnLayoutRelation extends Relation {
+public class ColumnLayoutRelationData extends RelationData {
 
-    public static ColumnLayoutRelation createFrom(RelationalInputGenerator fileInputGenerator, boolean isNullEqualNull)
+    /**
+     * {@link ColumnData} objects aligned with the {@link Column}s in the {@link #schema}.
+     */
+    private final ColumnData[] columnData;
+
+    public static ColumnLayoutRelationData createFrom(RelationalInputGenerator fileInputGenerator, boolean isNullEqualNull)
             throws InputGenerationException, AlgorithmConfigurationException, InputIterationException {
         return createFrom(fileInputGenerator, isNullEqualNull, -1, -1);
     }
 
-    public static ColumnLayoutRelation createFrom(RelationalInputGenerator fileInputGenerator, boolean isNullEqualNull,
-                                                  int maxCols, long maxRows)
+    public static ColumnLayoutRelationData createFrom(RelationalInputGenerator fileInputGenerator, boolean isNullEqualNull,
+                                                      int maxCols, long maxRows)
             throws InputGenerationException, AlgorithmConfigurationException, InputIterationException {
 
         long _startMillis = System.currentTimeMillis();
         try (final RelationalInput relationalInput = fileInputGenerator.generateNewCopy()) {
 
-            // Prepare the relation.
-            final ColumnLayoutRelation relation = new ColumnLayoutRelation(relationalInput.relationName(), isNullEqualNull);
+            // Create the schema.
+            final RelationSchema schema = new RelationSchema(relationalInput.relationName(), isNullEqualNull);
 
             // Prepare the value dictionary.
             Object2IntMap<String> valueDictionary = new Object2IntOpenHashMap<>();
@@ -71,55 +76,70 @@ public class ColumnLayoutRelation extends Relation {
             valueDictionary = null;
 
             // Create the actual data structures.
+            final ColumnData[] columnData = new ColumnData[columnVectors.size()];
             int index = 0;
             for (IntList columnVector : columnVectors) {
-                PositionListIndex pli = PositionListIndex.createFor(columnVector, relation.isNullEqualNull());
-                relation.columns.add(new Column(relation, relationalInput.columnNames().get(index), index, pli));
+                // Declare the column.
+                Column column = new Column(schema, relationalInput.columnNames().get(index), index);
+                schema.columns.add(column);
+
+                // Create the column data.
+                PositionListIndex pli = PositionListIndex.createFor(columnVector, schema.isNullEqualNull());
+                columnData[index] = new ColumnData(column, pli.getProbingTable(true), pli);
                 index++;
             }
+            ColumnLayoutRelationData instance = new ColumnLayoutRelationData(schema, columnData);
 
-            relation._loadMillis = System.currentTimeMillis() - _startMillis;
-            return relation;
+//            relation._loadMillis = System.currentTimeMillis() - _startMillis;
+            return instance;
 
         } catch (Exception e) {
             throw new RuntimeException("Could not build relation vectors.", e);
         }
     }
 
-    private ColumnLayoutRelation(String name, boolean isNullEqualNull) {
-        super(name, isNullEqualNull);
+    /**
+     * Retrieves the {@link ColumnData} for the {@link Column}s in the {@link #getSchema() schema} - in the exact same order.
+     *
+     * @return an array of {@link ColumnData}
+     */
+    public ColumnData[] getColumnData() {
+        return this.columnData;
     }
 
-    public String getName() {
-        return this.name;
+    /**
+     * Retrieves the {@link ColumnData} for the {@link Column} with the given index.
+     *
+     * @param columnIndex the index of the {@link Column}
+     * @return the {@link ColumnData}
+     */
+    public ColumnData getColumnData(int columnIndex) {
+        return this.columnData[columnIndex];
+    }
+
+    private ColumnLayoutRelationData(RelationSchema schema, ColumnData[] columnData) {
+        super(schema);
+        this.columnData = columnData;
     }
 
     public int getNumRows() {
-        return this.columns.get(0).getData().length;
+        return this.columnData[0].getProbingTable().length;
     }
 
     @Override
     public int[] getTuple(int tupleIndex) {
-        int[] tuple = new int[this.getNumColumns()];
-        for (int columnIndex = 0; columnIndex < this.getNumColumns(); columnIndex++) {
-            tuple[columnIndex] = this.columns.get(columnIndex).getData()[tupleIndex];
+        int numColumns = this.getSchema().getNumColumns();
+        int[] tuple = new int[numColumns];
+        for (int columnIndex = 0; columnIndex < numColumns; columnIndex++) {
+            tuple[columnIndex] = this.columnData[columnIndex].getProbingTable()[tupleIndex];
         }
         return tuple;
     }
 
     @Override
     public void shuffleColumns() {
-        for (Column column : this.columns) {
-            column.shuffle();
+        for (ColumnData columnDatum : this.columnData) {
+            columnDatum.shuffle();
         }
-    }
-
-    @Override
-    public ColumnLayoutRelation copy() {
-        ColumnLayoutRelation copy = new ColumnLayoutRelation(this.name, this.isNullEqualNull());
-        for (Column column : this.columns) {
-            copy.columns.add(column.copyFor(copy));
-        }
-        return copy;
     }
 }

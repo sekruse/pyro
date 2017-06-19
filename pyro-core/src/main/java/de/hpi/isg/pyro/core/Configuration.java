@@ -15,6 +15,9 @@ public class Configuration extends AbstractPFDConfiguration {
     public int parallelism = 0;
 
     @MetanomeProperty
+    public int maxThreadsPerSearchSpace = -1;
+
+    @MetanomeProperty
     public boolean isDeferFailedLaunchPads = true;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

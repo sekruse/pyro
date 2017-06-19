@@ -1,6 +1,6 @@
 package de.hpi.isg.pyro.util;
 
-import de.hpi.isg.pyro.model.Relation;
+import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
 
 import java.util.*;
@@ -11,13 +11,13 @@ import java.util.function.BiConsumer;
  */
 public class VerticalMap<Value> implements Map<Vertical, Value> {
 
-    private final Relation relation;
+    private final RelationSchema relation;
 
     private final SetTrie<Value> setTrie;
 
     private int size = 0;
 
-    public VerticalMap(Relation relation) {
+    public VerticalMap(RelationSchema relation) {
         this.relation = relation;
         this.setTrie = new SetTrie<>(this.relation.getNumColumns());
     }

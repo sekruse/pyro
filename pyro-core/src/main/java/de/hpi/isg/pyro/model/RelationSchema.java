@@ -11,13 +11,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
 /**
- * Represents a relational table.
+ * Represents the schema of a relational table.
+ *
+ * @see RelationData
  */
-public abstract class Relation {
-
-    public static final int singletonValueId = PositionListIndex.singletonValueId;
-
-    public static final int nullValueId = -1;
+public class RelationSchema {
 
     protected final String name;
 
@@ -27,12 +25,7 @@ public abstract class Relation {
 
     public final Vertical emptyVertical = Vertical.emptyVertical(this);
 
-    // Profiling data.
-    public long _loadMillis = 0;
-    public AtomicLong _hittingSetNanos = new AtomicLong();
-    public AtomicLong _numHittingSets = new AtomicLong();
-
-    protected Relation(String name, boolean isNullEqualNull) {
+    protected RelationSchema(String name, boolean isNullEqualNull) {
         this.name = name;
         this.columns = new ArrayList<>();
         this.isNullEqualNull = isNullEqualNull;
@@ -44,20 +37,6 @@ public abstract class Relation {
 
     public List<Column> getColumns() {
         return this.columns;
-    }
-
-    abstract public int getNumRows();
-
-    public double getMaximumEntropy() {
-        return Math.log(this.getNumRows());
-    }
-
-    public double getMaximumNip() {
-        return this.getNumRows() * (this.getNumRows() - 1d) / 2;
-    }
-
-    public long getNumTuplePairs() {
-        return this.getNumRows() * (this.getNumRows() - 1L) / 2;
     }
 
     public ColumnIdentifier getColumnIdentifier(int index) {
@@ -123,11 +102,9 @@ public abstract class Relation {
         return this.columns.size();
     }
 
-    public Relation copy() {
+    public RelationSchema copy() {
         throw new UnsupportedOperationException();
     }
-
-    abstract public int[] getTuple(int tupleIndex);
 
     public boolean isNullEqualNull() {
         return this.isNullEqualNull;
@@ -144,8 +121,6 @@ public abstract class Relation {
     public Collection<Vertical> calculateHittingSet(
             Collection<Vertical> verticals,
             Predicate<Vertical> pruningFunction) {
-
-        long _startNanos = System.nanoTime();
 
         List<Vertical> sortedVerticals = new ArrayList<>(verticals);
         sortedVerticals.sort(Comparator.comparing(Vertical::getArity).reversed());
@@ -186,9 +161,6 @@ public abstract class Relation {
                 hittingSet.remove(invalidMember);
             }
         }
-
-        _hittingSetNanos.addAndGet(System.nanoTime() - _startNanos);
-        _numHittingSets.incrementAndGet();
 
         // Produce the result.
         return hittingSet.keySet();

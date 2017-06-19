@@ -1,10 +1,8 @@
 package de.hpi.isg.pyro.model;
 
-import de.hpi.isg.mdms.domain.constraints.PartialFunctionalDependency;
 import de.hpi.isg.mdms.domain.constraints.PartialUniqueColumnCombination;
 import de.hpi.isg.mdms.model.targets.Table;
 import de.hpi.isg.mdms.model.util.IdUtils;
-import de.hpi.isg.pyro.util.PFDRater;
 import de.metanome.algorithm_integration.results.UniqueColumnCombination;
 
 import java.util.Comparator;
@@ -31,10 +29,6 @@ public class PartialKey {
     }
 
     public static Comparator<PartialKey> scoreComparator = Comparator.comparing(fd -> fd.score);
-
-    public double rateWith(PFDRater rater) {
-        return rater.rate(this.vertical, null, null, this.vertical.getRelation());
-    }
 
     @Override
     public String toString() {

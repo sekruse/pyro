@@ -1,7 +1,8 @@
 package de.hpi.isg.pyro.util;
 
 import de.hpi.isg.pyro.model.Column;
-import de.hpi.isg.pyro.model.Relation;
+import de.hpi.isg.pyro.model.RelationData;
+import de.hpi.isg.pyro.model.RelationSchema;
 import it.unimi.dsi.fastutil.ints.*;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 
@@ -34,7 +35,7 @@ public class PositionListIndex {
 
     public static final int singletonValueId = 0;
 
-    private static final int nullValueId = Relation.nullValueId;
+    private static final int nullValueId = RelationData.nullValueId;
 
     // Profiling data.
     public static final AtomicLong _numIntersects = new AtomicLong(0);
@@ -54,8 +55,8 @@ public class PositionListIndex {
 
         // Post-process the index.
         IntArrayList nullCluster = isNullEqualNull ?
-                index.get(Relation.nullValueId) :
-                index.remove(Relation.nullValueId);
+                index.get(RelationData.nullValueId) :
+                index.remove(RelationData.nullValueId);
 
         double keyGap = 0d;
         double nep = 0;
@@ -100,8 +101,8 @@ public class PositionListIndex {
 
         // Post-process the index.
         IntArrayList nullCluster = isNullEqualNull ?
-                index.get(Relation.nullValueId) :
-                index.remove(Relation.nullValueId);
+                index.get(RelationData.nullValueId) :
+                index.remove(RelationData.nullValueId);
         double keyGap = 0d;
         double nep = 0;
         int size = 0;

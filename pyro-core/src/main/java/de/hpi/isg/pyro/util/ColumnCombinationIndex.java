@@ -2,7 +2,7 @@ package de.hpi.isg.pyro.util;
 
 import de.hpi.isg.pyro.model.Column;
 import de.hpi.isg.pyro.model.ColumnCombination;
-import de.hpi.isg.pyro.model.Relation;
+import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
 
 import java.util.BitSet;
@@ -17,9 +17,9 @@ public class ColumnCombinationIndex<V> {
 
     private final Map<BitSet, V> index = new HashMap<>();
 
-    private final Relation relation;
+    private final RelationSchema relation;
 
-    public ColumnCombinationIndex(Relation relation) {
+    public ColumnCombinationIndex(RelationSchema relation) {
         this.relation = relation;
     }
 

@@ -1,31 +1,39 @@
 package de.hpi.isg.pyro.akka.actors
 
-import akka.actor.{Actor, ActorRef, ActorSystem, Props}
+import java.util.concurrent.atomic.AtomicInteger
+
+import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.routing.SmallestMailboxPool
-import de.hpi.isg.pyro.akka.messages.{ColumnReport, NodeManagerState, ProfilingTask}
-import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
-import de.hpi.isg.pyro.model.{ColumnLayoutRelation, PartialFD, PartialKey}
-import de.metanome.algorithm_integration.input.RelationalInputGenerator
+import de.hpi.isg.pyro.akka.actors.Controller.{NodeManagerReport, NodeManagerState, SearchSpaceComplete, SearchSpaceReport}
+import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeFromInputGenerator, ShutDownWithReport, WorkerStopped}
 import de.hpi.isg.pyro.akka.utils.JavaScalaCompatibility._
+import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
+import de.hpi.isg.pyro.model.{ColumnLayoutRelationData, PartialFD, PartialKey}
+import de.metanome.algorithm_integration.input.RelationalInputGenerator
 
 import scala.collection.mutable
-import scala.collection.JavaConversions._
 
 /**
   * There should be one such [[Actor]] on each machine. It's purpose is to control the resources and profiling process
   * on that very node.
   */
-class NodeManager extends Actor with Printing {
-
-  /**
-    * Reference to the [[Controller]] of the profiling process.
-    */
-  var controller: ActorRef = _
+class NodeManager(controller: ActorRef,
+                  configuration: Configuration,
+                  inputPath: String,
+                  inputGenerator: Option[RelationalInputGenerator],
+                  uccConsumer: PartialKey => _,
+                  fdConsumer: PartialFD => _)
+  extends Actor with ActorLogging {
 
   /**
     * Reference to the [[Worker]] pool under this instance.
     */
   var workerPool: ActorRef = _
+
+  /**
+    * Number of [[Worker]]s.
+    */
+  var numWorkers: Int = _
 
   /**
     * Number of idle [[Worker]]s.
@@ -38,75 +46,186 @@ class NodeManager extends Actor with Printing {
   var profilingContext: ProfilingContext = _
 
   /**
-    * Maintains search spaces to be processed by this instance.
+    * Maintains search spaces to be processed by this instance and keeps track of how many [[Worker]]s are processing
+    * each one.
     */
-  var searchSpaces: mutable.Set[SearchSpace] = mutable.Set()
+  var numAssignedWorkers: mutable.Map[SearchSpace, Int] = mutable.Map()
 
-  override def preStart(): Unit = {
-    super.preStart()
-    controller = context.parent
-  }
+  /**
+    * Counts the number of dependencies discovered.
+    */
+  val numDiscoveredDependencies = new AtomicInteger(0)
+
 
   override def receive = {
-    case ProfilingTask(configuration, inputPath, inputGenerator) =>
-      startProfiling(configuration, inputPath, inputGenerator)
+    case InitializeFromInputGenerator =>
+      // Obtain the relation.
+      val relation = inputGenerator match {
+        case Some(generator) =>
+          log.info(s"Loading relation from $generator...")
+          ColumnLayoutRelationData.createFrom(generator,
+            configuration.isNullEqualNull,
+            configuration.maxCols,
+            configuration.maxRows
+          )
+
+        case None =>
+          sys.error(s"No RelationalInputGenerator not supported.")
+      }
+
+      // Do further initializations.
+      createProfilingContext(relation)
+      createWorkers()
+
+      // Pass the controller the schema.
+      controller ! relation.getSchema
 
     case searchSpaces: Seq[SearchSpace] =>
-      val newSearchSpaces = searchSpaces filterNot this.searchSpaces
-      this.searchSpaces ++= newSearchSpaces
+      searchSpaces.foreach { searchSpace =>
+        require(profilingContext != null)
+        searchSpace.setContext(profilingContext)
+        searchSpace.ensureInitialized()
+        this.numAssignedWorkers.getOrElseUpdate(searchSpace, 0)
+      }
+      assignSearchSpaces()
+
+    case WorkerStopped(searchSpace) =>
+      numIdleWorkers += 1
+      val newAssignedWorkers = numAssignedWorkers(searchSpace) - 1
+      numAssignedWorkers(searchSpace) = newAssignedWorkers
+      // TODO: Check whether we actually fully processed the search space.
+      if (newAssignedWorkers == 0) {
+        numAssignedWorkers -= searchSpace
+        controller ! SearchSpaceReport(searchSpace, SearchSpaceComplete)
+      }
+
+      // Check if there are unprocessed search spaces right now.
+      val numOpenSearchSpaces = numAssignedWorkers.values.count(_ == 0)
+      if (numOpenSearchSpaces > 0) {
+        // TODO: Consider behaving differently when just having dropped out of a search space.
+        assignSearchSpaces()
+      } else {
+        // Otherwise, propagate new search space from controller.
+        controller ! NodeManagerState(numWorkers = numWorkers, numSearchSpaces = numAssignedWorkers.size)
+      }
+
+    case ShutDownWithReport =>
+      sender() ! NodeManagerReport(numDiscoveredDependencies.get)
+
 
     case other => sys.error(s"[${self.path}] Unknown message: $other")
   }
 
+
   /**
-    * Initiates the profiling process.
+    * Creates the [[ProfilingContext]] for this instance.
     *
-    * @param configuration defines what to profile and how
+    * @param relation the relation to be profiled
     */
-  private def startProfiling(configuration: Configuration,
-                             inputPath: String,
-                             inputGenerator: Option[RelationalInputGenerator]) = {
-    actorPrint(s"Profiling $inputPath for ${controller.path}.")
-
-    // Obtain the relation.
-    val relation = inputGenerator match {
-      case Some(generator) =>
-        actorPrint(s"Loading relation from $generator...")
-        ColumnLayoutRelation.createFrom(generator,
-          configuration.isNullEqualNull,
-          configuration.maxCols,
-          configuration.maxRows
-        )
-
-      case None =>
-        sys.error(s"No RelationalInputGenerator not supported.")
-    }
-    controller ! ColumnReport(relation.getColumns)
-
+  private def createProfilingContext(relation: ColumnLayoutRelationData) = {
     profilingContext = new ProfilingContext(
       configuration,
       relation,
-      (ucc: PartialKey) => actorPrint(s"Discovered UCC: $ucc"),
-      (fd: PartialFD) => actorPrint(s"Discovered FD: $fd")
+      (ucc: PartialKey) => {
+        uccConsumer(ucc)
+        numDiscoveredDependencies.incrementAndGet()
+      },
+      (fd: PartialFD) => {
+        fdConsumer(fd)
+        numDiscoveredDependencies.incrementAndGet()
+      }
     )
+  }
 
+  /**
+    * Creates the [[Worker]] actor pool and notifies the [[controller]] of the new state.
+    */
+  def createWorkers() {
     // Allocate the workers.
-    val parallelism =
+    numWorkers =
       if (configuration.parallelism > 0) configuration.parallelism
       else Runtime.getRuntime.availableProcessors
-    workerPool = context.system.actorOf(SmallestMailboxPool(parallelism).props(Props[Worker]), "worker-pool")
-    numIdleWorkers = parallelism
-    actorPrint(s"Started $numIdleWorkers workers.")
+    workerPool = context.system.actorOf(SmallestMailboxPool(numWorkers).props(Worker.props(profilingContext)), "worker-pool")
+    numIdleWorkers = numWorkers
+    log.info(s"Started $numWorkers workers.")
 
-    context.system.actorSelection(workerPool.path / "*") ! profilingContext
-
-    controller ! NodeManagerState(numIdleWorkers = Some(numIdleWorkers))
+    // Inform the controller of the current search space.
+    sender ! NodeManagerState(numWorkers = numWorkers, numSearchSpaces = numAssignedWorkers.size)
   }
+
+  /**
+    * Assign [[SearchSpace]]s to idling [[Worker]]s.
+    */
+  private def assignSearchSpaces(): Unit = {
+    // Naive implementation. As long as there are idling workers, we just assign them whatever search space has the
+    // fewest workers operating upon it.
+    implicit val searchSpaceOrdering = Ordering.by[(SearchSpace, Int), Int](_._2)(Ordering.Int.reverse)
+    val searchSpaceQueue = mutable.PriorityQueue[(SearchSpace, Int)](
+      this.numAssignedWorkers.filter(entry => checkAdmissionForAdditionalWorker(entry._2)).toSeq: _*
+    )
+
+    while (numIdleWorkers > 0 && searchSpaceQueue.nonEmpty) {
+      val (searchSpace, numWorkingWorkers) = searchSpaceQueue.dequeue()
+      searchSpace.setContext(profilingContext)
+      log.debug(s"Assigning $searchSpace to a worker (processed by $numWorkingWorkers other workers)")
+      workerPool ! searchSpace
+      numIdleWorkers -= 1
+      numAssignedWorkers(searchSpace) = numAssignedWorkers(searchSpace) + 1
+      if (checkAdmissionForAdditionalWorker(numWorkingWorkers + 1))
+        searchSpaceQueue.enqueue((searchSpace, numWorkingWorkers + 1))
+    }
+
+    // TODO: Revoke search spaces from workers.
+  }
+
+  private def checkAdmissionForAdditionalWorker(searchSpace: SearchSpace): Boolean =
+    checkAdmissionForAdditionalWorker(numAssignedWorkers(searchSpace))
+
+  private def checkAdmissionForAdditionalWorker(numWorkers: Int): Boolean =
+    configuration.maxThreadsPerSearchSpace < 1 || configuration.maxThreadsPerSearchSpace > numWorkers
 
 }
 
+/**
+  * Companion object.
+  */
 object NodeManager {
 
-  def createOn(actorSystem: ActorSystem) = actorSystem.actorOf(Props[NodeManager], "node-manager")
+  /**
+    * Creates a [[Props]] instance for a new [[NodeManager]] actor.
+    *
+    * @param controller     that controls the new actor
+    * @param configuration  that defines what to profile and how
+    * @param inputPath      defines what to profile
+    * @param inputGenerator optional [[RelationalInputGenerator]] to load the data from
+    * @param uccConsumer    should be called whenever a new [[PartialKey]] is discovered
+    * @param fdConsumer     should be called whenever a new [[PartialFD]] is discovered
+    * @return the [[Props]]
+    */
+  def props(controller: ActorRef,
+            configuration: Configuration,
+            inputPath: String,
+            inputGenerator: Option[RelationalInputGenerator],
+            uccConsumer: PartialKey => _,
+            fdConsumer: PartialFD => _) =
+    Props(new NodeManager(controller, configuration, inputPath, inputGenerator, uccConsumer, fdConsumer))
+
+  /**
+    * This message asks a [[NodeManager]] actor to initialize its [[ProfilingContext]] and [[Worker]]s using the
+    * [[RelationalInputGenerator]].
+    */
+  case object InitializeFromInputGenerator
+
+  /**
+    * This message asks a [[NodeManager]] to shut down and report the number of dependencies its [[Worker]]s discovered.
+    */
+  case object ShutDownWithReport
+
+  /**
+    * This message tells that some [[Worker]] stopped processing the given [[SearchSpace]].
+    *
+    * @param searchSpace the [[SearchSpace]]
+    */
+  case class WorkerStopped(searchSpace: SearchSpace)
 
 }

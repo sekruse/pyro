@@ -1,19 +1,16 @@
 package de.hpi.isg.pyro.model;
 
-import de.hpi.isg.pyro.util.PositionListIndex;
 import de.metanome.algorithm_integration.ColumnIdentifier;
-import it.unimi.dsi.fastutil.ints.IntList;
 
 import java.util.BitSet;
 import java.util.Objects;
-import java.util.Random;
 
 /**
- * Represents a column in a {@link Relation}.
+ * Represents a column in a {@link RelationSchema} (i.e., without data).
  */
 public class Column implements Vertical {
 
-    private final Relation relation;
+    private final RelationSchema schema;
 
     private final String name;
 
@@ -21,33 +18,13 @@ public class Column implements Vertical {
 
     private final BitSet indices;
 
-    private final int[] data;
 
-    private PositionListIndex positionListIndex;
-
-    Column(Relation relation, String name, int index, int[] data) {
-        this.relation = relation;
+    Column(RelationSchema schema, String name, int index) {
+        this.schema = schema;
         this.name = name;
         this.index = index;
-        this.indices = new BitSet(this.index);
-        this.indices.set(this.index);
-        this.data = data;
-    }
-
-    Column(Relation relation, String name, int index, PositionListIndex pli) {
-        this(relation, name, index, pli.getProbingTable());
-        this.positionListIndex = pli;
-    }
-
-    public int[] getData() {
-        return data;
-    }
-
-    public PositionListIndex getPositionListIndex() {
-        if (this.positionListIndex == null) {
-            this.positionListIndex = PositionListIndex.createFor(this.data, this.relation.isNullEqualNull());
-        }
-        return this.positionListIndex;
+        this.indices = new BitSet(index + 1);
+        this.indices.set(index);
     }
 
     public int getIndex() {
@@ -63,27 +40,8 @@ public class Column implements Vertical {
         return this.name;
     }
 
-    public void shuffle() {
-        shuffle(this.data, new Random());
-        this.positionListIndex = null;
-    }
-
-    public static void shuffle(int[] data, Random random) {
-        for (int i = 1; i < data.length; i++) {
-            int k = random.nextInt(i);
-            swapElements(data, i, k);
-        }
-    }
-
-    private static void swapElements(int[] data, int index1, int index2) {
-        data[index1] ^= data[index2];
-        data[index2] ^= data[index1];
-        data[index1] ^= data[index2];
-    }
-
-    @Override
-    public Relation getRelation() {
-        return this.relation;
+    public RelationSchema getSchema() {
+        return this.schema;
     }
 
     @Override
@@ -97,15 +55,14 @@ public class Column implements Vertical {
      * @return the converted instance
      */
     public ColumnIdentifier toMetanomeColumnIdentifier() {
-        return new ColumnIdentifier(this.getRelation().getName(), this.getName());
+        return new ColumnIdentifier(this.getSchema().getName(), this.getName());
     }
 
-    public Column copyFor(Relation relationCopy) {
+    public Column copyFor(RelationSchema relationCopy) {
         return new Column(
                 relationCopy,
                 this.name,
-                this.index,
-                this.data.clone()
+                this.index
         );
     }
 
@@ -115,11 +72,11 @@ public class Column implements Vertical {
         if (o == null || getClass() != o.getClass()) return false;
         Column column = (Column) o;
         return index == column.index &&
-                Objects.equals(relation, column.relation);
+                Objects.equals(schema, column.schema);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(relation, index);
+        return Objects.hash(schema, index);
     }
 }

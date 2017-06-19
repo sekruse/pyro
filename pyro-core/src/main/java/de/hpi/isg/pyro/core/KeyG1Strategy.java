@@ -1,5 +1,6 @@
 package de.hpi.isg.pyro.core;
 
+import de.hpi.isg.pyro.model.Column;
 import de.hpi.isg.pyro.model.Vertical;
 import de.hpi.isg.pyro.util.AgreeSetSample;
 import de.hpi.isg.pyro.util.ConfidenceInterval;
@@ -16,8 +17,24 @@ public class KeyG1Strategy extends DependencyStrategy {
     }
 
     @Override
+    synchronized public void ensureInitialized(SearchSpace searchSpace) {
+        // We do this operation thread-safe, just in case.
+        if (searchSpace.isInitialized) return;
+
+        // Initialize the launchPads.
+        for (Column column : this.context.getSchema().getColumns()) {
+            if (this.isIrrelevantColumn(column)) continue;
+
+            // We need to estimate the error of the dependency candidate.
+            searchSpace.addLaunchPad(this.createDependencyCandidate(column));
+        }
+
+        searchSpace.isInitialized = true;
+    }
+
+    @Override
     double calculateError(Vertical keyCandidate) {
-        PositionListIndex pli = keyCandidate.getPositionListIndex(this.context.pliCache);
+        PositionListIndex pli = this.context.pliCache.getOrCreateFor(keyCandidate);
         return this.calculateKeyError(pli);
     }
 
@@ -26,7 +43,7 @@ public class KeyG1Strategy extends DependencyStrategy {
     }
 
     private double calculateKeyError(double numEqualityPairs) {
-        double keyError = numEqualityPairs / this.context.getRelation().getNumTuplePairs();
+        double keyError = numEqualityPairs / this.context.getRelationData().getNumTuplePairs();
         // We truncate some precision here to avoid small numerical flaws to affect the result.
         return PFDRater.round(keyError);
     }
@@ -42,7 +59,8 @@ public class KeyG1Strategy extends DependencyStrategy {
     DependencyCandidate createDependencyCandidate(Vertical vertical) {
         // If we have columns, there is no need to estimate.
         if (vertical.getArity() == 1) {
-            double keyError = this.calculateKeyError((long) vertical.getNep());
+            PositionListIndex pli = this.context.pliCache.getOrCreateFor(vertical);
+            double keyError = this.calculateKeyError((long) pli.getNep());
             return new DependencyCandidate(vertical, new ConfidenceInterval(keyError, keyError), null);
         }
 
@@ -54,7 +72,7 @@ public class KeyG1Strategy extends DependencyStrategy {
         AgreeSetSample agreeSetSample = this.context.getAgreeSetSample(vertical);
         ConfidenceInterval estimatedEqualityPairs = agreeSetSample
                 .estimateAgreements(vertical, this.context.configuration.estimateConfidence)
-                .multiply(this.context.relation.getNumTuplePairs());
+                .multiply(this.context.relationData.getNumTuplePairs());
         ConfidenceInterval keyError = this.calculateKeyError(estimatedEqualityPairs);
         return new DependencyCandidate(vertical, keyError, agreeSetSample);
     }
@@ -82,7 +100,7 @@ public class KeyG1Strategy extends DependencyStrategy {
 
     @Override
     public Vertical getIrrelevantColumns() {
-        return this.context.relation.emptyVertical;
+        return this.context.relationData.getSchema().emptyVertical;
     }
 
     @Override

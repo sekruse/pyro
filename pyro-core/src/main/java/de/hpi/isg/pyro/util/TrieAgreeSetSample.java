@@ -1,8 +1,8 @@
 package de.hpi.isg.pyro.util;
 
-import de.hpi.isg.pyro.model.ColumnLayoutRelation;
-import de.hpi.isg.pyro.model.Relation;
-import de.hpi.isg.pyro.model.RowLayoutRelation;
+import de.hpi.isg.pyro.model.ColumnLayoutRelationData;
+import de.hpi.isg.pyro.model.RelationData;
+import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
@@ -32,7 +32,7 @@ public class TrieAgreeSetSample extends AgreeSetSample {
      * @param random         an existing {@link Random} to introduce entropy or {@code null}
      * @return the new instance
      */
-    public static TrieAgreeSetSample createFor(ColumnLayoutRelation relation, double samplingFactor, Random random) {
+    public static TrieAgreeSetSample createFor(ColumnLayoutRelationData relation, double samplingFactor, Random random) {
         return createFor(relation, (int) (relation.getNumTuplePairs() * samplingFactor), random, factory);
     }
 
@@ -44,7 +44,7 @@ public class TrieAgreeSetSample extends AgreeSetSample {
      * @param random     an existing {@link Random} to introduce entropy or {@code null}
      * @return the new instance
      */
-    public static TrieAgreeSetSample createFor(ColumnLayoutRelation relation, int sampleSize, Random random) {
+    public static TrieAgreeSetSample createFor(ColumnLayoutRelationData relation, int sampleSize, Random random) {
         return createFor(relation, sampleSize, random, factory);
     }
 
@@ -58,7 +58,7 @@ public class TrieAgreeSetSample extends AgreeSetSample {
      * @param random              an existing {@link Random} to introduce entropy or {@code null}
      * @return the new instance
      */
-    public static TrieAgreeSetSample createFocusedFor(ColumnLayoutRelation relation,
+    public static TrieAgreeSetSample createFocusedFor(ColumnLayoutRelationData relation,
                                                       Vertical restrictionVertical,
                                                       PositionListIndex restrictionPli,
                                                       double samplingFactor,
@@ -78,7 +78,7 @@ public class TrieAgreeSetSample extends AgreeSetSample {
      * @param random              an existing {@link Random} to introduce entropy or {@code null}
      * @return the new instance
      */
-    public static TrieAgreeSetSample createFocusedFor(ColumnLayoutRelation relation,
+    public static TrieAgreeSetSample createFocusedFor(ColumnLayoutRelationData relation,
                                                       Vertical restrictionVertical,
                                                       PositionListIndex restrictionPli,
                                                       int sampleSize,
@@ -87,27 +87,28 @@ public class TrieAgreeSetSample extends AgreeSetSample {
         return createFocusedFor(relation, restrictionVertical, restrictionPli, sampleSize, random, factory);
     }
 
-    /**
-     * Create a new instance.
-     *
-     * @param relation       for that the correlation estimates should be provided
-     * @param samplingFactor is defined as {@code |sampled tuple pairs|/|tuples in relation|}
-     * @param random         an existing {@link Random} to introduce entropy or {@code null}
-     * @return the new instance
-     */
-    public static TrieAgreeSetSample createFor(RowLayoutRelation relation, double samplingFactor, Random random) {
-        return createFor(relation, samplingFactor, random, factory);
-    }
+//    /**
+//     * Create a new instance.
+//     *
+//     * @param relation       for that the correlation estimates should be provided
+//     * @param samplingFactor is defined as {@code |sampled tuple pairs|/|tuples in relation|}
+//     * @param random         an existing {@link Random} to introduce entropy or {@code null}
+//     * @return the new instance
+//     */
+//    public static TrieAgreeSetSample createFor(RowLayoutRelation relation, double samplingFactor, Random random) {
+//        return createFor(relation, samplingFactor, random, factory);
+//    }
 
-    private TrieAgreeSetSample(Relation relation, Vertical focus, int sampleSize, long populationSize,
+    private TrieAgreeSetSample(RelationData relation, Vertical focus, int sampleSize, long populationSize,
                                Object2LongOpenHashMap<BitSet> agreeSetCounters) {
         super(relation, focus, sampleSize, populationSize);
         ObjectIterator<Object2LongMap.Entry<BitSet>> counterIterator = agreeSetCounters.object2LongEntrySet().fastIterator();
-        this.correlations = new VerticalMap<>(this.relation);
+        RelationSchema schema = this.relationData.getSchema();
+        this.correlations = new VerticalMap<>(schema);
         while (counterIterator.hasNext()) {
             Object2LongMap.Entry<BitSet> entry = counterIterator.next();
             this.correlations.put(
-                    relation.getVertical(entry.getKey()),
+                    schema.getVertical(entry.getKey()),
                     entry.getLongValue()
             );
         }
@@ -139,7 +140,7 @@ public class TrieAgreeSetSample extends AgreeSetSample {
     }
 
     public double getFocusSelectivity() {
-        return populationSize / (double) relation.getNumTuplePairs();
+        return populationSize / (double) relationData.getNumTuplePairs();
     }
 
     public double getSamplingRatio() {

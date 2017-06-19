@@ -139,7 +139,7 @@ public class TaneX
 
 
         // Load data.
-        final Relation relation = ColumnLayoutRelation.createFrom(
+        final RelationSchema relation = ColumnLayoutRelationData.createFrom(
                 this.fileInputGenerator, this.configuration.isNullEqualNull, this.configuration.maxCols, this.configuration.maxRows
         );
 
@@ -334,7 +334,7 @@ public class TaneX
     }
 
 
-    private void printProfilingData(Relation relation) {
+    private void printProfilingData(RelationSchema relation) {
         System.out.println("Collected profiling data:");
         System.out.printf(" Load data:            %,12d ms\n", relation._loadMillis);
         System.out.printf(" PLI intersects:       %,12d ms\n", PositionListIndex._nanosIntersects.get() / 1_000_000L);

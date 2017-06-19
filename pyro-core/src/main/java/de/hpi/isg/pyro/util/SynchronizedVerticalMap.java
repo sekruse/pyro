@@ -1,6 +1,6 @@
 package de.hpi.isg.pyro.util;
 
-import de.hpi.isg.pyro.model.Relation;
+import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
 
 import java.util.ArrayList;
@@ -17,7 +17,7 @@ public class SynchronizedVerticalMap<Value> extends VerticalMap<Value> {
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    public SynchronizedVerticalMap(Relation relation) {
+    public SynchronizedVerticalMap(RelationSchema relation) {
         super(relation);
     }
 

@@ -1,19 +1,19 @@
 package de.hpi.isg.pyro.model;
 
-import de.hpi.isg.pyro.util.PLICache;
 import de.hpi.isg.pyro.util.PositionListIndex;
 import de.metanome.algorithm_integration.ColumnIdentifier;
 
-import java.util.*;
+import java.util.BitSet;
+import java.util.Comparator;
 import java.util.function.ToDoubleFunction;
 
 /**
- * A vertical is an abstract description of one or more {@link Column}s.
+ * A vertical describes a set of {@link Column}s from a common {@link RelationSchema}.
  */
 public interface Vertical {
 
     /**
-     * Retrieve the indices of the {@link Column}s wrt. their {@link Relation}.
+     * Retrieve the indices of the {@link Column}s wrt. their {@link RelationSchema}.
      *
      * @return the indices
      */
@@ -37,155 +37,77 @@ public interface Vertical {
     }
 
     /**
-     * <i>Optional operation.</i> Set the {@link PositionListIndex} for this instance.
+     * Create a new instance that contains all {@link Column}s from this and {@code that} instance.
      *
-     * @param pli the {@link PositionListIndex}
+     * @param that the {@link Column}s to project
+     * @return the new instance
      */
-    default void setPositionListIndex(PositionListIndex pli) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Retrieve the {@link PositionListIndex} for this instance.
-     * <p>In contrast to {@link #tryGetPositionListIndex()}, the {@link PositionListIndex} will be calculated
-     * if it is not available.</p>
-     *
-     * @return the {@link PositionListIndex}
-     */
-    PositionListIndex getPositionListIndex();
-
-    /**
-     * Retrieve the {@link PositionListIndex} for this instance using the {@link PLICache} if necessary.
-     *
-     * @param pliCache can provide the {@link PositionListIndex} and cache it
-     * @return the {@link PositionListIndex}
-     */
-    default PositionListIndex getPositionListIndex(PLICache pliCache) {
-        return pliCache.getPositionListIndex(this);
-    }
-
-    /**
-     * Retrieves the {@link PositionListIndex} for this instance if available.
-     *
-     * @return the {@link PositionListIndex} or {@code null} if it is not available
-     */
-    default PositionListIndex tryGetPositionListIndex() {
-        return this.getPositionListIndex();
-    }
-
-    /**
-     * Retrieve the entropy of this instance.
-     *
-     * @return the entropy
-     */
-    default double getEntropy() {
-        return this.getPositionListIndex().getEntropy();
-    }
-
-    /**
-     * Retrieve the number of inequality pairs in this instance.
-     *
-     * @return the number of inequality pairs (NIP)
-     */
-    default double getNip() {
-        return this.getPositionListIndex().getNip();
-    }
-
-
-    /**
-     * Retrieve the number of equality pairs in this instance.
-     *
-     * @return the number of equality pairs (NEP)
-     */
-    default double getNep() {
-        return this.getRelation().getMaximumNip() - this.getPositionListIndex().getNip();
-    }
-
     default Vertical union(Vertical that) {
-        BitSet allColumnIndices = (BitSet) this.getColumnIndices().clone();
-        allColumnIndices.or(that.getColumnIndices());
-        return this.getRelation().getVertical(allColumnIndices);
+        BitSet retainedColumnIndices = (BitSet) this.getColumnIndices().clone();
+        retainedColumnIndices.or(that.getColumnIndices());
+        return this.getSchema().getVertical(retainedColumnIndices);
     }
 
+    /**
+     * Create a new instance that contains all {@link Column}s that are in both this and {@code that} instance.
+     *
+     * @param that the {@link Column}s to project
+     * @return the new instance
+     */
     default Vertical project(Vertical that) {
         BitSet retainedColumnIndices = (BitSet) this.getColumnIndices().clone();
         retainedColumnIndices.and(that.getColumnIndices());
-        return this.getRelation().getVertical(retainedColumnIndices);
+        return this.getSchema().getVertical(retainedColumnIndices);
     }
 
+    /**
+     * Create a new instance that contains all {@link Column}s from this instance without those in {@code that} instance.
+     *
+     * @param that the {@link Column}s to remove
+     * @return the new instance
+     */
     default Vertical without(Vertical that) {
         BitSet retainedColumnIndices = (BitSet) this.getColumnIndices().clone();
         retainedColumnIndices.andNot(that.getColumnIndices());
-        return this.getRelation().getVertical(retainedColumnIndices);
+        return this.getSchema().getVertical(retainedColumnIndices);
     }
 
     /**
      * Creates a new instance that consists of all {@link Column}s that are <b>not</b> comprised in this instance.
      *
-     * @return the inverted instance
+     * @return the inverted instance w.r.t. the {@link #getSchema() schema}
      */
     default Vertical invert() {
         BitSet flippedIndices = ((BitSet) this.getColumnIndices().clone());
-        flippedIndices.flip(0, this.getRelation().getNumColumns());
-        return this.getRelation().getVertical(flippedIndices);
+        flippedIndices.flip(0, this.getSchema().getNumColumns());
+        return this.getSchema().getVertical(flippedIndices);
     }
 
     /**
      * Creates a new instance that consists of all {@link Column}s that are either comprised in the {@code scope}
      * <b>or</b> in this instance.
      *
-     * @return the inverted instance
+     * @return the inverted instance w.r.t. the {@code scope}
      */
     default Vertical invert(Vertical scope) {
         BitSet flippedIndices = ((BitSet) this.getColumnIndices().clone());
         flippedIndices.xor(scope.getColumnIndices());
-        return this.getRelation().getVertical(flippedIndices);
+        return this.getSchema().getVertical(flippedIndices);
     }
 
-    Relation getRelation();
+    RelationSchema getSchema();
 
-    default double getKeyness() {
-        return this.getEntropy() / this.getRelation().getMaximumEntropy();
-    }
-
-    static Vertical emptyVertical(Relation relation) {
+    static Vertical emptyVertical(RelationSchema relation) {
         return new Vertical() {
 
             private final BitSet columnIndices = new BitSet(0);
-
 
             @Override
             public BitSet getColumnIndices() {
                 return this.columnIndices;
             }
 
-            @Override
-            public PositionListIndex getPositionListIndex() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public double getNip() {
-                return 0;
-            }
-
-            @Override
-            public double getNep() {
-                return this.getRelation().getMaximumNip();
-            }
-
-            @Override
-            public double getEntropy() {
-                return 0d;
-            }
-
-            @Override
-            public PositionListIndex tryGetPositionListIndex() {
-                return null;
-            }
-
-            @Override
-            public Relation getRelation() {
+            public RelationSchema getSchema() {
                 return relation;
             }
 
@@ -203,7 +125,7 @@ public interface Vertical {
 
     default Column[] getColumns() {
         BitSet columnIndices = this.getColumnIndices();
-        Relation relation = getRelation();
+        RelationSchema relation = getSchema();
         Column[] columns = new Column[columnIndices.cardinality()];
         for (int index = columnIndices.nextSetBit(0), i = 0;
              index != -1;
@@ -222,7 +144,7 @@ public interface Vertical {
              columnIndex != -1;
              columnIndex = columnIndices.nextSetBit(columnIndex + 1)) {
             columnIndices.clear(columnIndex);
-            parents[i++] = this.getRelation().getVertical((BitSet) columnIndices.clone());
+            parents[i++] = this.getSchema().getVertical((BitSet) columnIndices.clone());
             columnIndices.set(columnIndex);
         }
         return parents;
@@ -240,10 +162,6 @@ public interface Vertical {
             columnIdentifiers[i++] = lhsColumn.toMetanomeColumnIdentifier();
         }
         return new de.metanome.algorithm_integration.ColumnCombination(columnIdentifiers);
-    }
-
-    default <T> Metric<T> createMetric(T value) {
-        return new Metric<>(this, value);
     }
 
     class Metric<T> {

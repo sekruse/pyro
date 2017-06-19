@@ -3,7 +3,6 @@ package de.hpi.isg.pyro.model;
 import de.hpi.isg.mdms.domain.constraints.PartialFunctionalDependency;
 import de.hpi.isg.mdms.model.targets.Table;
 import de.hpi.isg.mdms.model.util.IdUtils;
-import de.hpi.isg.pyro.util.PFDRater;
 import de.metanome.algorithm_integration.results.FunctionalDependency;
 
 import java.util.Comparator;
@@ -34,10 +33,6 @@ public class PartialFD {
 
     public static Comparator<PartialFD> scoreComparator = Comparator.comparing(fd -> fd.score);
 
-    public double rateWith(PFDRater rater) {
-        Vertical jointVertical = this.lhs.union(this.rhs);
-        return rater.rate(this.lhs, this.rhs, jointVertical, this.rhs.getRelation());
-    }
 
     @Override
     public String toString() {

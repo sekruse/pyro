@@ -31,6 +31,13 @@ abstract public class DependencyStrategy {
     }
 
     /**
+     * Create the initial {@link DependencyCandidate}s for the given {@link SearchSpace} if not done already.
+     *
+     * @param searchSpace the {@link SearchSpace}
+     */
+    abstract public void ensureInitialized(SearchSpace searchSpace);
+
+    /**
      * Create a new {@link DependencyCandidate} for the given {@link Vertical} and estimate its error.
      *
      * @param candidate the {@link Vertical}
@@ -71,17 +78,17 @@ abstract public class DependencyStrategy {
      * @return whether a resampling is recommended
      */
     boolean shouldResample(Vertical vertical, double boostFactor) {
-        if (context.configuration.sampleSize <= 0) return false;
+        if (context.configuration.sampleSize <= 0 || vertical.getArity() < 1) return false;
 
         // Do we have an exact sample already?
         AgreeSetSample currentSample = context.getAgreeSetSample(vertical);
         if (currentSample.isExact()) return false;
 
         // Get an estimate of the number of equality pairs in the vertical.
-        PositionListIndex pli = vertical.tryGetPositionListIndex();
+        PositionListIndex pli = context.pliCache.get(vertical);
         double nep = pli != null ?
                 pli.getNep() :
-                currentSample.estimateAgreements(vertical) * context.getRelation().getNumTuplePairs();
+                currentSample.estimateAgreements(vertical) * context.getRelationData().getNumTuplePairs();
 
         // Would the new sample be exact?
         if (nep <= context.configuration.sampleSize * boostFactor) return true;

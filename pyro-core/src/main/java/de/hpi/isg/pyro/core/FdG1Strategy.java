@@ -27,13 +27,31 @@ public class FdG1Strategy extends DependencyStrategy {
     }
 
     @Override
+    synchronized public void ensureInitialized(SearchSpace searchSpace) {
+        // We better do this thread-safe just in case.
+        if (searchSpace.isInitialized) return;
+
+        // We only add a candidate for the 0-ary FD []->RHS.
+        double zeroFdError = this.calculateError(this.context.relationData.getSchema().emptyVertical);
+        searchSpace.addLaunchPad(new DependencyCandidate(
+                this.context.relationData.getSchema().emptyVertical,
+                new ConfidenceInterval(zeroFdError, zeroFdError),
+                null
+        ));
+
+        searchSpace.isInitialized = true;
+    }
+
+    @Override
     double calculateError(Vertical fdCandidate) {
         // Special case: Check 0-ary FD.
         if (fdCandidate.getArity() == 0) {
-            return this.calculateG1(this.rhs.getNip());
+            PositionListIndex rhsPli = this.context.pliCache.get(this.rhs);
+            assert rhsPli != null;
+            return this.calculateG1(rhsPli.getNip());
         }
 
-        PositionListIndex pli = fdCandidate.getPositionListIndex(this.context.pliCache);
+        PositionListIndex pli = this.context.pliCache.getOrCreateFor(fdCandidate);
         return this.calculateG1(pli);
     }
 
@@ -42,7 +60,7 @@ public class FdG1Strategy extends DependencyStrategy {
         long numViolations = 0L;
         final Int2IntOpenHashMap valueCounts = new Int2IntOpenHashMap();
         valueCounts.defaultReturnValue(0);
-        final int[] probingTable = this.rhs.getData();
+        final int[] probingTable = this.context.relationData.getColumnData(this.rhs.getIndex()).getProbingTable();
 
         // Do the actual probing cluster by cluster.
         for (IntArrayList cluster : lhsPli.getIndex()) {
@@ -77,7 +95,7 @@ public class FdG1Strategy extends DependencyStrategy {
     }
 
     private double calculateG1(double numViolatingTuplePairs) {
-        double g1 = numViolatingTuplePairs / this.context.relation.getNumTuplePairs();
+        double g1 = numViolatingTuplePairs / this.context.relationData.getNumTuplePairs();
         // We truncate some precision here to avoid small numerical flaws to affect the result.
         return PFDRater.round(g1);
     }
@@ -99,7 +117,7 @@ public class FdG1Strategy extends DependencyStrategy {
         AgreeSetSample agreeSetSample = this.context.getAgreeSetSample(vertical);
         ConfidenceInterval numViolatingTuplePairs = agreeSetSample
                 .estimateMixed(vertical, this.rhs, this.context.configuration.estimateConfidence)
-                .multiply(this.context.relation.getNumTuplePairs());
+                .multiply(this.context.relationData.getNumTuplePairs());
 
         ConfidenceInterval g1 = this.calculateG1(numViolatingTuplePairs);
         return new DependencyCandidate(vertical, g1, agreeSetSample);

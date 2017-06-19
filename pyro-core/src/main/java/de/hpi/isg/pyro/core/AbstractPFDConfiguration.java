@@ -1,9 +1,8 @@
 package de.hpi.isg.pyro.core;
 
-import de.hpi.isg.pyro.model.Relation;
+import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
 import de.hpi.isg.pyro.properties.MetanomeProperty;
-import de.hpi.isg.pyro.util.Correlations;
 
 /**
  * Metanome configuration class for partial FD/UCC algorithms.
@@ -64,7 +63,7 @@ public class AbstractPFDConfiguration {
     /**
      * The lower limit (exclusive) on the EP correlation of two columns to consider them for key-value pruning.
      *
-     * @see Correlations#normalizedCorrelation(Vertical, Vertical, Vertical, Relation)
+     * @see Correlations#normalizedCorrelation(Vertical, Vertical, Vertical, RelationSchema)
      */
     @MetanomeProperty
     public double minNormalizedEPCorrelationForKeyValuePruning = Double.NaN; //-0.1;
@@ -72,7 +71,7 @@ public class AbstractPFDConfiguration {
     /**
      * The upper limit (exclusive) on the EP correlation of two columns to consider them for key-value pruning.
      *
-     * @see Correlations#normalizedCorrelation(Vertical, Vertical, Vertical, Relation)
+     * @see Correlations#normalizedCorrelation(Vertical, Vertical, Vertical, RelationSchema)
      */
     @MetanomeProperty
     public double maxNormalizedEPCorrelationForKeyValuePruning = Double.NaN; //0.1;
@@ -142,7 +141,7 @@ public class AbstractPFDConfiguration {
      * The lower limit (exclusive) on the EP correlation of two columns to
      * consider them for key-key pruning.
      *
-     * @see Correlations#normalizedCorrelation(Vertical, Vertical, Vertical, Relation)
+     * @see Correlations#normalizedCorrelation(Vertical, Vertical, Vertical, RelationSchema)
      */
     @MetanomeProperty
     public double minNormalizedEPCorrelationForKeyKeyPruning = Double.NaN; // 0.5;

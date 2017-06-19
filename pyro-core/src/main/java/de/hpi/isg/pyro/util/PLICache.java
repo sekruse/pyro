@@ -1,8 +1,11 @@
 package de.hpi.isg.pyro.util;
 
 import de.hpi.isg.pyro.model.Column;
-import de.hpi.isg.pyro.model.Relation;
+import de.hpi.isg.pyro.model.ColumnData;
+import de.hpi.isg.pyro.model.RelationData;
 import de.hpi.isg.pyro.model.Vertical;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.ref.Reference;
 import java.util.*;
@@ -14,9 +17,9 @@ import java.util.stream.Collectors;
  */
 public class PLICache {
 
-    private static final boolean isVerbose = false;
+    private static final Logger logger = LoggerFactory.getLogger(PLICache.class);
 
-    private final Relation relation;
+    private final RelationData relationData;
 
     private final VerticalMap<Reference<PositionListIndex>> cache;
 
@@ -24,33 +27,45 @@ public class PLICache {
 
     private final Function<PositionListIndex, Reference<PositionListIndex>> referenceCreation;
 
-    public PLICache(Relation relation,
+    public PLICache(RelationData relationData,
                     boolean isSynchronized,
                     Function<PositionListIndex, Reference<PositionListIndex>> referenceCreation) {
-        this.relation = relation;
-        this.cache = isSynchronized ? new SynchronizedVerticalMap<>(this.relation) : new VerticalMap<>(this.relation);
+        this.relationData = relationData;
+        this.cache = isSynchronized ?
+                new SynchronizedVerticalMap<>(this.relationData.getSchema()) :
+                new VerticalMap<>(this.relationData.getSchema());
         this.referenceCreation = referenceCreation;
     }
 
-    public PositionListIndex getPositionListIndex(Vertical vertical) {
-        if (isVerbose) System.out.printf("PLI for %s requested: ", vertical);
+    /**
+     * Obtains a {@link PositionListIndex} for a given {@link Vertical}.
+     *
+     * @param vertical for which a {@link PositionListIndex} is requested
+     * @return the {@link PositionListIndex} or {@code null} if it is not cached
+     */
+    public PositionListIndex get(Vertical vertical) {
+        Reference<PositionListIndex> pliRef = this.cache.get(vertical);
+        if (pliRef == null) return null;
+        return pliRef.get();
+    }
 
-        // Directly ask the vertical to provide the PLI.
-        PositionListIndex positionListIndex = vertical.tryGetPositionListIndex();
-        if (positionListIndex != null) {
-            if (isVerbose) System.out.printf("Served from vertical cache.\n");
-            return positionListIndex;
-        }
+    /**
+     * Obtains a {@link PositionListIndex} for a given {@link Vertical}. If it is not cached, it will be calculated
+     * using cached {@link PositionListIndex}es and, eventually, cached.
+     *
+     * @param vertical for which a {@link PositionListIndex} is required
+     * @return the {@link PositionListIndex}
+     */
+    public PositionListIndex getOrCreateFor(Vertical vertical) {
+        if (logger.isDebugEnabled()) logger.debug("PLI for {} requested: ", vertical);
 
         // See if the PLI is cached.
-        Reference<PositionListIndex> positionListIndexReference = this.cache.get(vertical);
-        if (positionListIndexReference != null && (positionListIndex = positionListIndexReference.get()) != null) {
-            vertical.setPositionListIndex(positionListIndex);
-            if (isVerbose) System.out.printf("Served from PLI cache.\n");
-            return positionListIndex;
+        PositionListIndex pli = null;
+        Reference<PositionListIndex> pliReference = this.cache.get(vertical);
+        if (pliReference != null && (pli = pliReference.get()) != null) {
+            if (logger.isDebugEnabled()) logger.debug("Served from PLI cache.");
+            return pli;
         }
-
-//        System.out.printf("Need to construct PLI for %s. Using: ", vertical);
 
         // Otherwise, look for cached PLIs from which we can construct the requested PLI.
         ArrayList<Map.Entry<Vertical, Reference<PositionListIndex>>> subsetEntries = this.cache.getSubsetEntries(vertical);
@@ -72,7 +87,7 @@ public class PLICache {
             }
         }
         LinkedList<PositionListIndexRank> operands = new LinkedList<>();
-        BitSet cover = new BitSet(this.relation.getNumColumns()), coverTester = new BitSet(this.relation.getNumColumns());
+        BitSet cover = new BitSet(this.relationData.getNumColumns()), coverTester = new BitSet(this.relationData.getNumColumns());
         if (smallestPliRank != null) {
             operands.add(smallestPliRank);
             cover.or(smallestPliRank.vertical.getColumnIndices());
@@ -99,7 +114,6 @@ public class PLICache {
                 }
 
                 if (bestRank != null) {
-//                System.out.printf("%s, ", bestRank.vertical);
                     operands.add(bestRank);
                     cover.or(bestRank.vertical.getColumnIndices());
                 }
@@ -108,16 +122,15 @@ public class PLICache {
         // Supply PLIs from columns still missing in the column.
         for (Column column : vertical.getColumns()) {
             if (!cover.get(column.getIndex())) {
-//                System.out.printf("%s, ", column);
-                operands.add(new PositionListIndexRank(column, column.getPositionListIndex(), 1));
+                ColumnData columnData = this.relationData.getColumnData(column.getIndex());
+                operands.add(new PositionListIndexRank(column, columnData.getPositionListIndex(), 1));
             }
         }
-//        System.out.println();
 
         // Sort the PLIs by their size.
         operands.sort(Comparator.comparing(rank -> rank.pli.size()));
-        if (isVerbose)
-            System.out.printf("Intersecting %s.\n",
+        if (logger.isDebugEnabled())
+            logger.debug("Intersecting {}.",
                     operands.stream()
                             .map(rank -> String.format("%s (size=%,d)", rank.vertical, rank.pli.size()))
                             .collect(Collectors.joining(", "))
@@ -126,28 +139,27 @@ public class PLICache {
         // Intersect all the PLIs.
         Vertical currentVertical = null;
         for (PositionListIndexRank operand : operands) {
-            if (positionListIndex == null) {
+            if (pli == null) {
                 currentVertical = operand.vertical;
-                positionListIndex = operand.pli;
+                pli = operand.pli;
             } else {
                 currentVertical = currentVertical.union(operand.vertical);
-                positionListIndex = positionListIndex.intersect(operand.pli);
+                pli = pli.intersect(operand.pli);
                 // Cache the PLI.
                 if (this.isCacheIntermediatePlis) {
-                    this.cache.put(currentVertical, this.referenceCreation.apply(positionListIndex));
+                    this.cache.put(currentVertical, this.referenceCreation.apply(pli));
                 }
             }
         }
         // Cache the PLI.
         if (!this.isCacheIntermediatePlis) {
-            this.cache.put(currentVertical, this.referenceCreation.apply(positionListIndex));
+            this.cache.put(currentVertical, this.referenceCreation.apply(pli));
         }
-        vertical.setPositionListIndex(positionListIndex);
 
-        if (isVerbose)
-            System.out.printf("Calculated from %d sub-PLIs (saved %d intersections).\n", operands.size(), vertical.getArity() - operands.size());
+        if (logger.isDebugEnabled())
+            logger.debug("Calculated from {} sub-PLIs (saved {} intersections).\n", operands.size(), vertical.getArity() - operands.size());
 
-        return positionListIndex;
+        return pli;
     }
 
     public int size() {

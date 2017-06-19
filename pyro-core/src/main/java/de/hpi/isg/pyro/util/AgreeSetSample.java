@@ -26,15 +26,15 @@ public abstract class AgreeSetSample {
      */
     public interface Factory<T extends AgreeSetSample> {
 
-        T create(Relation relation, Vertical focus, int sampleSize, long populationSize,
+        T create(RelationData relationData, Vertical focus, int sampleSize, long populationSize,
                  Object2LongOpenHashMap<BitSet> agreeSetCounter);
 
     }
 
     /**
-     * The {@link Relation} that has been sampled.
+     * The {@link RelationData} that has been sampled.
      */
-    protected final Relation relation;
+    protected final RelationData relationData;
 
     /**
      * If this instance describes a focused sampling, i.e., it is based on tuple pairs that agree on some
@@ -61,38 +61,38 @@ public abstract class AgreeSetSample {
     /**
      * Create a new instance.
      *
-     * @param relation   for that the correlation estimates should be provided
+     * @param relationData   for that the correlation estimates should be provided
      * @param sampleSize the number of tuple pairs to sample
      * @param random     an existing {@link Random} to introduce entropy or {@code null}
      * @return the new instance
      */
-    protected static <T extends AgreeSetSample> T createFor(ColumnLayoutRelation relation, int sampleSize, Random random,
+    protected static <T extends AgreeSetSample> T createFor(ColumnLayoutRelationData relationData, int sampleSize, Random random,
                                                             Factory<T> factory) {
         long startTime = System.currentTimeMillis();
 
         if (random == null) random = new Random();
 
         // First, do the sampling and count the detected agree sets.
-        Object2LongOpenHashMap<BitSet> agreeSetCounters = new Object2LongOpenHashMap<>(relation.getNumRows());
+        Object2LongOpenHashMap<BitSet> agreeSetCounters = new Object2LongOpenHashMap<>(relationData.getNumRows());
         agreeSetCounters.defaultReturnValue(0L);
         System.out.printf("Sampling %d tuple pairs to provide correlation estimates... ", sampleSize);
-        sampleSize = (int) Math.min(sampleSize, relation.getNumTuplePairs());
+        sampleSize = (int) Math.min(sampleSize, relationData.getNumTuplePairs());
 
         for (long i = 0; i < sampleSize; i++) {
             // Sample two tuples.
-            int tupleIndex1 = random.nextInt(relation.getNumRows());
-            int tupleIndex2 = random.nextInt(relation.getNumRows());
+            int tupleIndex1 = random.nextInt(relationData.getNumRows());
+            int tupleIndex2 = random.nextInt(relationData.getNumRows());
             if (tupleIndex1 == tupleIndex2) {
                 i--;
                 continue;
             }
 
             // Create the agree set.
-            BitSet agreeSet = new BitSet(relation.getNumColumns());
-            for (Column column : relation.getColumns()) {
-                int value1 = column.getData()[tupleIndex1];
-                if (value1 != PositionListIndex.singletonValueId && value1 == column.getData()[tupleIndex2]) {
-                    agreeSet.set(column.getIndex());
+            BitSet agreeSet = new BitSet(relationData.getNumColumns());
+            for (ColumnData columnData : relationData.getColumnData()) {
+                int value1 = columnData.getProbingTableValue(tupleIndex1);
+                if (value1 != PositionListIndex.singletonValueId && value1 == columnData.getProbingTableValue(tupleIndex2)) {
+                    agreeSet.set(columnData.getColumn().getIndex());
                 }
             }
 
@@ -102,7 +102,7 @@ public abstract class AgreeSetSample {
 
         // Now, put the counts into a VerticalMap, so as to enable subset and superset queries.
         T instance = factory.create(
-                relation, relation.emptyVertical, sampleSize, relation.getNumTuplePairs(), agreeSetCounters
+                relationData, relationData.getSchema().emptyVertical, sampleSize, relationData.getNumTuplePairs(), agreeSetCounters
         );
 
         long endTime = System.currentTimeMillis();
@@ -121,7 +121,7 @@ public abstract class AgreeSetSample {
      * @param random              an existing {@link Random} to introduce entropy or {@code null}
      * @return the new instance
      */
-    protected static <T extends AgreeSetSample> T createFocusedFor(ColumnLayoutRelation relation,
+    protected static <T extends AgreeSetSample> T createFocusedFor(ColumnLayoutRelationData relation,
                                                                    Vertical restrictionVertical,
                                                                    PositionListIndex restrictionPli,
                                                                    double samplingFactor,
@@ -142,7 +142,7 @@ public abstract class AgreeSetSample {
      * @param random              an existing {@link Random} to introduce entropy or {@code null}
      * @return the new instance
      */
-    protected static <T extends AgreeSetSample> T createFocusedFor(ColumnLayoutRelation relation,
+    protected static <T extends AgreeSetSample> T createFocusedFor(ColumnLayoutRelationData relation,
                                                                    Vertical restrictionVertical,
                                                                    PositionListIndex restrictionPli,
                                                                    int sampleSize,
@@ -156,7 +156,12 @@ public abstract class AgreeSetSample {
         BitSet freeColumnIndices = new BitSet(relation.getNumColumns());
         freeColumnIndices.set(0, relation.getNumColumns());
         freeColumnIndices.andNot(restrictionVertical.getColumnIndices());
-        Column[] freeColumns = relation.getVertical(freeColumnIndices).getColumns();
+        ColumnData[] relevantColumnData = new ColumnData[freeColumnIndices.cardinality()];
+        for (int columnIndex = freeColumnIndices.nextSetBit(0), i = 0;
+             columnIndex != -1;
+             columnIndex = freeColumnIndices.nextSetBit(columnIndex + 1), i++) {
+            relevantColumnData[i] = relation.getColumnData(i);
+        }
         BitSet agreeSetPrototype = (BitSet) restrictionVertical.getColumnIndices().clone();
         Object2LongOpenHashMap<BitSet> agreeSetCounters = new Object2LongOpenHashMap<>(relation.getNumRows());
         agreeSetCounters.defaultReturnValue(0);
@@ -175,10 +180,10 @@ public abstract class AgreeSetSample {
 
                         // Create the agree set.
                         BitSet agreeSet = (BitSet) agreeSetPrototype.clone();
-                        for (Column column : freeColumns) {
-                            int value1 = column.getData()[tupleIndex1];
-                            if (value1 != PositionListIndex.singletonValueId && value1 == column.getData()[tupleIndex2]) {
-                                agreeSet.set(column.getIndex());
+                        for (ColumnData columnData : relevantColumnData) {
+                            int value1 = columnData.getProbingTableValue(tupleIndex1);
+                            if (value1 != PositionListIndex.singletonValueId && value1 == columnData.getProbingTableValue(tupleIndex2)) {
+                                agreeSet.set(columnData.getColumn().getIndex());
                             }
                         }
 
@@ -217,10 +222,10 @@ public abstract class AgreeSetSample {
 
                 // Create the agree set.
                 BitSet agreeSet = (BitSet) agreeSetPrototype.clone();
-                for (Column column : freeColumns) {
-                    int value1 = column.getData()[tupleIndex1];
-                    if (value1 != PositionListIndex.singletonValueId && value1 == column.getData()[tupleIndex2]) {
-                        agreeSet.set(column.getIndex());
+                for (ColumnData columnData : relevantColumnData) {
+                    int value1 = columnData.getProbingTableValue(tupleIndex1);
+                    if (value1 != PositionListIndex.singletonValueId && value1 == columnData.getProbingTableValue(tupleIndex2)) {
+                        agreeSet.set(columnData.getColumn().getIndex());
                     }
                 }
 
@@ -245,7 +250,7 @@ public abstract class AgreeSetSample {
      * @param random         an existing {@link Random} to introduce entropy or {@code null}
      * @return the new instance
      */
-    public static <T extends AgreeSetSample> T createFor(RowLayoutRelation relation, double samplingFactor, Random random,
+    public static <T extends AgreeSetSample> T createFor(ColumnLayoutRelationData relation, double samplingFactor, Random random,
                                                          Factory<T> factory) {
         long startTime = System.currentTimeMillis();
 
@@ -273,7 +278,7 @@ public abstract class AgreeSetSample {
             BitSet agreeSet = new BitSet(relation.getNumColumns());
             for (int columnIndex = 0; columnIndex < relation.getNumColumns(); columnIndex++) {
                 int value1 = tuple1[columnIndex];
-                if (value1 != Relation.singletonValueId && value1 == tuple2[columnIndex]) {
+                if (value1 != RelationData.singletonValueId && value1 == tuple2[columnIndex]) {
                     agreeSet.set(columnIndex);
                 }
             }
@@ -284,7 +289,7 @@ public abstract class AgreeSetSample {
 
         // Now, put the counts into a VerticalMap, so as to enable subset and superset queries.
         T instance = factory.create(
-                relation, relation.emptyVertical, (int) sampleSize, relation.getNumTuplePairs(), agreeSetCounters
+                relation, relation.getSchema().emptyVertical, (int) sampleSize, relation.getNumTuplePairs(), agreeSetCounters
         );
 
         _milliSampling.addAndGet(System.currentTimeMillis() - startTime);
@@ -318,7 +323,7 @@ public abstract class AgreeSetSample {
     }
 
     /**
-     * Estimates the fraction of tuple pairs that agree in {@code agreement} in the sampled {@link Relation}.
+     * Estimates the fraction of tuple pairs that agree in {@code agreement} in the sampled {@link RelationSchema}.
      *
      * @param agreement the {@link Vertical} with agreeing values in the tuple pairs;
      *                  must include the {@link #getFocus() focus}
@@ -333,7 +338,7 @@ public abstract class AgreeSetSample {
     }
 
     /**
-     * Estimates the fraction of tuple pairs that agree in {@code agreement} in the sampled {@link Relation}.
+     * Estimates the fraction of tuple pairs that agree in {@code agreement} in the sampled {@link RelationSchema}.
      *
      * @param agreement  the {@link Vertical} with agreeing values in the tuple pairs
      * @param confidence a confidence value
@@ -356,7 +361,7 @@ public abstract class AgreeSetSample {
         double z = normalDistribution.inverseCumulativeProbability((confidence + 1) / 2);
         double smoothedRatioPositiveTuples = (numHits + stdDevSmoothing / 2) / (this.sampleSize + stdDevSmoothing);
         double stddevPositiveTuples = Math.sqrt(smoothedRatioPositiveTuples * (1 - smoothedRatioPositiveTuples) / this.sampleSize);
-        double minRatio = Math.max(sampleRatio - z * stddevPositiveTuples, calculateNonNegativeFraction(numHits, this.relation.getNumTuplePairs()));
+        double minRatio = Math.max(sampleRatio - z * stddevPositiveTuples, calculateNonNegativeFraction(numHits, this.relationData.getNumTuplePairs()));
         double maxRatio = sampleRatio + z * stddevPositiveTuples;
 
         return new ConfidenceInterval(this.ratioToRelationRatio(minRatio), this.ratioToRelationRatio(maxRatio));
@@ -364,7 +369,7 @@ public abstract class AgreeSetSample {
 
     /**
      * Estimates the fraction of tuple pairs that agree in {@code agreement} and disagree in {@code disagreement} in the
-     * sampled {@link Relation}.
+     * sampled {@link RelationSchema}.
      *
      * @param agreement the {@link Vertical} with agreeing values in the tuple pairs;
      *                  must include the {@link #getFocus() focus}
@@ -380,7 +385,7 @@ public abstract class AgreeSetSample {
 
     /**
      * Estimates the fraction of tuple pairs that agree in {@code agreement} and disagree in {@code disagreement} in the
-     * sampled {@link Relation}.
+     * sampled {@link RelationSchema}.
      *
      * @param agreement  the {@link Vertical} with agreeing values in the tuple pairs;
      *                   must include the {@link #getFocus() focus}
@@ -405,7 +410,7 @@ public abstract class AgreeSetSample {
         double z = normalDistribution.inverseCumulativeProbability((confidence + 1) / 2);
         double smoothedSampleRatio = (numHits + stdDevSmoothing / 2) / (this.sampleSize + stdDevSmoothing);
         double stddevPositiveTuples = Math.sqrt(smoothedSampleRatio * (1 - smoothedSampleRatio) / this.sampleSize);
-        double minRatio = Math.max(sampleRatio - z * stddevPositiveTuples, calculateNonNegativeFraction(numHits, this.relation.getNumTuplePairs()));
+        double minRatio = Math.max(sampleRatio - z * stddevPositiveTuples, calculateNonNegativeFraction(numHits, this.relationData.getNumTuplePairs()));
         double maxRatio = sampleRatio + z * stddevPositiveTuples;
 
         return new ConfidenceInterval(
@@ -479,8 +484,8 @@ public abstract class AgreeSetSample {
         );
     }
 
-    protected AgreeSetSample(Relation relation, Vertical focus, int sampleSize, long populationSize) {
-        this.relation = relation;
+    protected AgreeSetSample(RelationData relationData, Vertical focus, int sampleSize, long populationSize) {
+        this.relationData = relationData;
         this.focus = focus;
         this.sampleSize = sampleSize;
         this.populationSize = populationSize;
@@ -488,7 +493,7 @@ public abstract class AgreeSetSample {
 
     /**
      * Extrapolate a number of observations within the sample to the expected ratio of observations within the
-     * whole {@link #relation}.
+     * whole {@link #relationData}.
      *
      * @param numObservations the number of observations
      * @return the global ratio
@@ -499,13 +504,13 @@ public abstract class AgreeSetSample {
 
     /**
      * Extrapolate a sample or focus proportion to the expected ratio of observations within the
-     * whole {@link #relation}.
+     * whole {@link #relationData}.
      *
      * @param ratio a sample or focus proportion
      * @return the global ratio
      */
     private double ratioToRelationRatio(double ratio) {
-        return ratio * this.populationSize / this.relation.getNumTuplePairs();
+        return ratio * this.populationSize / this.relationData.getNumTuplePairs();
     }
 
     private static double calculateNonNegativeFraction(double a, double b) {
@@ -514,7 +519,7 @@ public abstract class AgreeSetSample {
     }
 
     public double getFocusSelectivity() {
-        return populationSize / (double) relation.getNumTuplePairs();
+        return populationSize / (double) relationData.getNumTuplePairs();
     }
 
     public double getSamplingRatio() {

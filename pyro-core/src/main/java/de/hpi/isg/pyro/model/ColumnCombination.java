@@ -4,9 +4,7 @@ import de.hpi.isg.pyro.util.PositionListIndex;
 
 import java.lang.ref.Reference;
 import java.lang.ref.SoftReference;
-import java.util.Arrays;
 import java.util.BitSet;
-import java.util.Comparator;
 import java.util.Objects;
 
 /**
@@ -23,53 +21,11 @@ public class ColumnCombination implements Vertical {
      */
     private PositionListIndex positionListIndexLock;
 
-    private final Relation relation;
+    private final RelationSchema relation;
 
-    public ColumnCombination(BitSet columnIndices, Relation relation) {
+    public ColumnCombination(BitSet columnIndices, RelationSchema relation) {
         this.columnIndices = columnIndices;
         this.relation = relation;
-    }
-
-    @Override
-    public PositionListIndex tryGetPositionListIndex() {
-        return this.positionListIndexCache != null ? this.positionListIndexCache.get() : null;
-    }
-
-    public PositionListIndex getPositionListIndex() {
-        PositionListIndex pli = this.tryGetPositionListIndex();
-        if (pli == null) {
-            pli = this.recalculatePositionListIndex();
-            this.positionListIndexCache = new SoftReference<>(pli);
-//            System.out.printf("Recalculating PLI for %s.\n", this);
-        }
-        return pli;
-    }
-
-    /**
-     * Recalculate the {@link PositionListIndex} for this index from scratch.
-     */
-    private PositionListIndex recalculatePositionListIndex() {
-        System.out.printf("Warning: Calculating PLI for %s from bare columns.\n", this);
-
-        // Retrieve the PLIs for the columns.
-        PositionListIndex[] columnPLIs = new PositionListIndex[columnIndices.cardinality()];
-        int i = 0;
-        for (int columnIndex = this.columnIndices.nextSetBit(0);
-             columnIndex != -1;
-             columnIndex = this.columnIndices.nextSetBit(columnIndex + 1)) {
-            columnPLIs[i++] = this.relation.getColumns().get(columnIndex).getPositionListIndex();
-        }
-
-        // Optimization: Sort the PLIs by their number of entries.
-        Arrays.sort(columnPLIs, Comparator.comparing(PositionListIndex::size));
-
-        // Perform the intersects one after another.
-        PositionListIndex result = columnPLIs[0];
-        for (i = 1; i < columnPLIs.length; i++) {
-            result = result.intersect(columnPLIs[i]);
-        }
-
-        return result;
     }
 
     /**
@@ -98,8 +54,7 @@ public class ColumnCombination implements Vertical {
         return this.columnIndices;
     }
 
-    @Override
-    public Relation getRelation() {
+    public RelationSchema getSchema() {
         return relation;
     }
 
