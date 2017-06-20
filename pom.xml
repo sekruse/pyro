@@ -21,8 +21,17 @@
         <maven.compiler.target>1.8</maven.compiler.target>
         <scala.version>2.11</scala.version>
         <scala.compat.version>2.11.11</scala.compat.version>
+        <logging.scope>test</logging.scope>
     </properties>
 
+    <profiles>
+        <profile>
+            <id>logging</id>
+            <properties>
+                <logging.scope>compile</logging.scope>
+            </properties>
+        </profile>
+    </profiles>
 
     <build>
         <pluginManagement>
@@ -46,17 +55,11 @@
                 </plugin>
             </plugins>
         </pluginManagement>
-
-        <!--<plugins>-->
-        <!--<plugin>-->
-        <!--<groupId>org.apache.maven.plugins</groupId>-->
-        <!--<artifactId>maven-assembly-plugin</artifactId>-->
-        <!--</plugin>-->
-        <!--</plugins>-->
     </build>
 
     <dependencyManagement>
         <dependencies>
+            <!-- Metanome -->
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
@@ -82,10 +85,8 @@
                 <artifactId>jackson-databind</artifactId>
                 <version>2.7.1</version>
             </dependency>
-            <dependency>
-                <groupId>com.google.guava</groupId>
-                <artifactId>guava</artifactId>
-            </dependency>
+
+            <!-- Metacrate -->
             <dependency>
                 <groupId>de.hpi.isg</groupId>
                 <artifactId>mdms-clients</artifactId>
@@ -96,6 +97,8 @@
                 <artifactId>mdms-flink</artifactId>
                 <version>${metacrate.version}</version>
             </dependency>
+
+            <!-- Miscellaneous -->
             <dependency>
                 <groupId>com.beust</groupId>
                 <artifactId>jcommander</artifactId>
@@ -111,6 +114,8 @@
                 <artifactId>commons-math3</artifactId>
                 <version>3.6.1</version>
             </dependency>
+
+            <!-- Akka -->
             <dependency>
                 <groupId>com.typesafe.akka</groupId>
                 <artifactId>akka-actor_${scala.version}</artifactId>
@@ -132,26 +137,27 @@
                 <version>2.5.2</version>
                 <scope>test</scope>
             </dependency>
+
+            <!-- Logging -->
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
                 <version>1.7.13</version>
             </dependency>
             <dependency>
-                <groupId>org.slf4j</groupId>
-                <artifactId>slf4j-simple</artifactId>
-                <version>1.7.13</version>
-            </dependency>
-            <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>
                 <version>LATEST</version>
+                <scope>${logging.scope}</scope>
             </dependency>
             <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-core</artifactId>
                 <version>LATEST</version>
+                <scope>${logging.scope}</scope>
             </dependency>
+
+            <!-- Testing -->
             <dependency>
                 <groupId>junit</groupId>
                 <artifactId>junit</artifactId>

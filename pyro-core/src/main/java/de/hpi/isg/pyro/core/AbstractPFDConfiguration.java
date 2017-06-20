@@ -1,18 +1,23 @@
 package de.hpi.isg.pyro.core;
 
+import com.beust.jcommander.Parameter;
 import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
 import de.hpi.isg.pyro.properties.MetanomeProperty;
 
+import java.io.Serializable;
+
 /**
  * Metanome configuration class for partial FD/UCC algorithms.
  */
-public class AbstractPFDConfiguration {
+public class AbstractPFDConfiguration implements Serializable {
 
     /**
      * If operated with a {@link de.hpi.isg.mdms.model.MetadataStore}, then we also need the fully qualified name of the
      * {@link de.hpi.isg.mdms.model.targets.Table} on that we operate.
      */
+    @Parameter(names = "--tableIdentifier", description = "if operated with Metacrate, the fully qualified name of the " +
+            "table being profiled is required")
     @MetanomeProperty
     public String tableIdentifier;
 
@@ -23,6 +28,7 @@ public class AbstractPFDConfiguration {
     /**
      * The maximum arity (both for keys and FDs) to consider.
      */
+    @Parameter(names = "--maxArity", description = "maximum arity of dependencies to consider (or <1 for no limitation)")
     @MetanomeProperty
     public int maxArity = -1;
 
@@ -44,12 +50,14 @@ public class AbstractPFDConfiguration {
     /**
      * Whether to find FDs.
      */
+    @Parameter(names = "--isFindFds", description = "whether to find FDs", arity = 1)
     @MetanomeProperty
     public boolean isFindFds = true;
 
     /**
      * The maximum FD error w.r.t. the {@link #fdErrorMeasure}.
      */
+    @Parameter(names = "--maxFdError", description = "the maximum allowed FD error")
     @MetanomeProperty
     public double maxFdError = 0.01;
 
@@ -57,6 +65,7 @@ public class AbstractPFDConfiguration {
     /**
      * Controls which FD error measure to use.
      */
+    @Parameter(names = "--fdErrorMeasure", description = "the FD error measure")
     @MetanomeProperty
     public String fdErrorMeasure = "g1prime";
 
@@ -122,18 +131,21 @@ public class AbstractPFDConfiguration {
     /**
      * Whether to find keys.
      */
+    @Parameter(names = "--isFindKeys", description = "whether to discover keys/UCCs", arity = 1)
     @MetanomeProperty
     public boolean isFindKeys = true;
 
     /**
      * Name of the UCC error measure.
      */
+    @Parameter(names = "--uccErrorMeasure", description = "the UCC error measure")
     @MetanomeProperty
     public String uccErrorMeasure = "g1prime";
 
     /**
      * The maximum key error w.r.t. the {@link #uccErrorMeasure}.
      */
+    @Parameter(names = "--maxUccError", description = "the maximum allowed UCC error")
     @MetanomeProperty
     public double maxUccError = 0.01;
 
@@ -162,15 +174,15 @@ public class AbstractPFDConfiguration {
     // Miscellaneous configuration.
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    @MetanomeProperty
-    public boolean isVerbose = false;
-
+    @Parameter(names = "--isNullEqualNull", description = "whether two distinct NULL values should be considered equal")
     @MetanomeProperty
     public boolean isNullEqualNull = true;
 
+    @Parameter(names = "--maxCols", description = "maximum number of columns to profile")
     @MetanomeProperty
     public int maxCols = -1;
 
+    @Parameter(names = "--maxRows", description = "maximum number of rows to profile")
     @MetanomeProperty
     public int maxRows = -1;
 

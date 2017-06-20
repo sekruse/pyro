@@ -17,7 +17,6 @@ class Worker(profilingContext: ProfilingContext) extends Actor with ActorLogging
       log.info(s"Stopped processing $searchSpace.")
       // Thread.sleep(scala.util.Random.nextInt(1000) + 1000)
       sender() ! WorkerStopped(searchSpace) // TODO: React appropriately.
-      sys.error("TODO")
 
     case msg => log.error(s"I am a dummy worker and cannot handle $msg.")
   }

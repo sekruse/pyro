@@ -1,15 +1,15 @@
 package de.hpi.isg.pyro.akka.actors
 
-import akka.actor.SupervisorStrategy.{Decider, Escalate, Stop}
-import akka.actor.{Actor, ActorContext, ActorLogging, ActorRef, ActorSystem, Address, AllForOneStrategy, ChildRestartStats, Deploy, OneForOneStrategy, Props, SupervisorStrategy}
+import akka.actor.SupervisorStrategy.Escalate
+import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Address, Deploy, OneForOneStrategy, Props, SupervisorStrategy}
 import akka.remote.RemoteScope
 import akka.util.Timeout
+import de.hpi.isg.pyro.akka.PyroOnAkka.{InputMethod, OutputMethod}
 import de.hpi.isg.pyro.akka.actors.Collector.SignalWhenDone
-import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeFromInputGenerator, ReportNumDependencies}
+import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeProfilingContext, ReportNumDependencies}
 import de.hpi.isg.pyro.akka.utils.{AskingMany, Host}
 import de.hpi.isg.pyro.core.{Configuration, FdG1Strategy, KeyG1Strategy, SearchSpace}
 import de.hpi.isg.pyro.model.{PartialFD, PartialKey, RelationSchema}
-import de.metanome.algorithm_integration.input.RelationalInputGenerator
 import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConversions._
@@ -24,10 +24,8 @@ import scala.language.postfixOps
   * @param configuration keeps track of the [[Configuration]] for the profiling
   */
 class Controller(configuration: Configuration,
-                 inputPath: String,
-                 inputGenerator: Option[RelationalInputGenerator] = None,
-                 uccConsumer: Option[PartialKey => _] = None,
-                 fdConsumer: Option[PartialFD => _] = None,
+                 input: InputMethod,
+                 output: OutputMethod,
                  hosts: Array[Host] = Array(),
                  onSuccess: () => Unit)
   extends Actor with ActorLogging with AskingMany {
@@ -68,15 +66,14 @@ class Controller(configuration: Configuration,
     super.preStart()
 
     // Initialize the Collector actor.
-    collector = context.actorOf(Collector.props(fdConsumer, uccConsumer), "collector")
+    collector = context.actorOf(Collector.props(output.fdConsumer, output.uccConsumer), "collector")
 
     // Initialize NodeManagers.
     val nodeManagerProps = {
       val _collector = collector
       NodeManager.props(self,
         configuration,
-        inputPath,
-        inputGenerator,
+        input,
         (ucc: PartialKey) => _collector ! ucc,
         (fd: PartialFD) => _collector ! fd
       )
@@ -99,14 +96,12 @@ class Controller(configuration: Configuration,
 
   override def receive: PartialFunction[Any, Unit] = {
     case Start =>
-      inputGenerator match {
-        case Some(gen) =>
-          askAll[NodeManagerState](nodeManagerStates.keys, InitializeFromInputGenerator) foreach {
-            case (node, state) => nodeManagerStates(node) = state
-          }
-
-        case None => sys.error("Unsupported input mode.")
+      askAll[NodeManagerState](nodeManagerStates.keys, InitializeProfilingContext) foreach {
+        case (node, state) => nodeManagerStates(node) = state
       }
+
+    case None => sys.error("Unsupported input mode.")
+
 
     case schema: RelationSchema =>
       if (searchSpaces == null) {
@@ -233,16 +228,14 @@ object Controller {
     */
   def start(actorSystem: ActorSystem,
             configuration: Configuration,
-            inputPath: String,
-            inputGenerator: Option[RelationalInputGenerator] = None,
-            uccConsumer: Option[PartialKey => _] = None,
-            fdConsumer: Option[PartialFD => _] = None,
+            input: InputMethod,
+            output: OutputMethod,
             hosts: Array[Host] = Array(),
             onSuccess: () => Unit) = {
 
     // Initialize the controller.
     val controller = actorSystem.actorOf(
-      Props(new Controller(configuration, inputPath, inputGenerator, uccConsumer, fdConsumer, hosts, onSuccess)),
+      Props(new Controller(configuration, input, output, hosts, onSuccess)),
       "controller"
     )
 

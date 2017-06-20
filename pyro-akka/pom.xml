@@ -27,6 +27,11 @@
             <version>1.0-SNAPSHOT</version>
         </dependency>
 
+        <dependency>
+            <groupId>com.beust</groupId>
+            <artifactId>jcommander</artifactId>
+        </dependency>
+
         <!--Metanome-->
         <dependency>
             <groupId>de.metanome</groupId>
@@ -58,12 +63,12 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <scope>test</scope>
+            <scope>${logging.scope}</scope>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-core</artifactId>
-            <scope>test</scope>
+            <scope>${logging.scope}</scope>
         </dependency>
     </dependencies>
 

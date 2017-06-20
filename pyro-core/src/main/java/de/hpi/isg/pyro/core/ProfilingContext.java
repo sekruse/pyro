@@ -2,6 +2,8 @@ package de.hpi.isg.pyro.core;
 
 import de.hpi.isg.pyro.model.*;
 import de.hpi.isg.pyro.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.ref.Reference;
 import java.lang.ref.SoftReference;
@@ -13,6 +15,8 @@ import java.util.function.Consumer;
  * This class contains the relevant data to operate Pyro within a JVM.
  */
 public class ProfilingContext extends DependencyConsumer {
+
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     /**
      * The configuration of Pyro.
@@ -114,16 +118,9 @@ public class ProfilingContext extends DependencyConsumer {
                 (int) (this.configuration.sampleSize * boostFactor),
                 this.random
         );
-        this.info("Created %s with a boost factor of %,f\n", sample, boostFactor);
+        if (logger.isDebugEnabled()) logger.debug("Created {} with a boost factor of {}.", sample, boostFactor);
         this.agreeSetSamples.put(focus, isUseWeakReference ? new WeakReference<>(sample) : new SoftReference<>(sample));
         return sample;
-    }
-
-
-    final void info(String msg, Object... params) {
-        if (this.configuration.isVerbose) {
-            System.out.printf(msg, params);
-        }
     }
 
     /**

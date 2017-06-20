@@ -1,17 +1,19 @@
 package de.hpi.isg.pyro.akka.actors
 
+import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
-import akka.actor.SupervisorStrategy.Escalate
-import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, OneForOneStrategy, Props, SupervisorStrategy}
+import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, Props, SupervisorStrategy}
 import akka.routing.SmallestMailboxPool
+import de.hpi.isg.pyro.akka.PyroOnAkka.{InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
 import de.hpi.isg.pyro.akka.actors.Controller.{NodeManagerReport, NodeManagerState, SearchSpaceComplete, SearchSpaceReport}
-import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeFromInputGenerator, ReportNumDependencies, WorkerStopped}
+import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeProfilingContext, ReportNumDependencies, WorkerStopped}
 import de.hpi.isg.pyro.akka.utils.AkkaUtils
 import de.hpi.isg.pyro.akka.utils.JavaScalaCompatibility._
 import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
 import de.hpi.isg.pyro.model.{ColumnLayoutRelationData, PartialFD, PartialKey}
 import de.metanome.algorithm_integration.input.RelationalInputGenerator
+import de.metanome.backend.input.file.DefaultFileInputGenerator
 
 import scala.collection.mutable
 
@@ -21,8 +23,7 @@ import scala.collection.mutable
   */
 class NodeManager(controller: ActorRef,
                   configuration: Configuration,
-                  inputPath: String,
-                  inputGenerator: Option[RelationalInputGenerator],
+                  input: InputMethod,
                   uccConsumer: PartialKey => _,
                   fdConsumer: PartialFD => _)
   extends Actor with ActorLogging {
@@ -66,19 +67,28 @@ class NodeManager(controller: ActorRef,
   }
 
   override def receive = {
-    case InitializeFromInputGenerator =>
+    case InitializeProfilingContext =>
       // Obtain the relation.
-      val relation = inputGenerator match {
-        case Some(generator) =>
-          log.info(s"Loading relation from $generator...")
-          ColumnLayoutRelationData.createFrom(generator,
+      val relation = input match {
+        case RelationalInputGeneratorInputMethod(inputGenerator) =>
+          log.info(s"Loading relation from $inputGenerator...")
+          ColumnLayoutRelationData.createFrom(inputGenerator,
             configuration.isNullEqualNull,
             configuration.maxCols,
             configuration.maxRows
           )
 
-        case None =>
-          sys.error(s"No RelationalInputGenerator not supported.")
+        case LocalFileInputMethod(inputPath, csvSettings) =>
+          log.info(s"Loading relation from $inputPath.")
+          val inputGenerator = new DefaultFileInputGenerator(new File(inputPath), csvSettings)
+          ColumnLayoutRelationData.createFrom(inputGenerator,
+            configuration.isNullEqualNull,
+            configuration.maxCols,
+            configuration.maxRows
+          )
+
+        case other =>
+          sys.error(s"Unsupported input method ($other).")
       }
 
       // Do further initializations.
@@ -125,7 +135,6 @@ class NodeManager(controller: ActorRef,
 
     case other => sys.error(s"[${self.path}] Unknown message: $other")
   }
-
 
   /**
     * Creates the [[ProfilingContext]] for this instance.
@@ -204,27 +213,25 @@ object NodeManager {
   /**
     * Creates a [[Props]] instance for a new [[NodeManager]] actor.
     *
-    * @param controller     that controls the new actor
-    * @param configuration  that defines what to profile and how
-    * @param inputPath      defines what to profile
-    * @param inputGenerator optional [[RelationalInputGenerator]] to load the data from
-    * @param uccConsumer    should be called whenever a new [[PartialKey]] is discovered
-    * @param fdConsumer     should be called whenever a new [[PartialFD]] is discovered
+    * @param controller    that controls the new actor
+    * @param configuration that defines what to profile and how
+    * @param input         defines what to profile
+    * @param uccConsumer   should be called whenever a new [[PartialKey]] is discovered
+    * @param fdConsumer    should be called whenever a new [[PartialFD]] is discovered
     * @return the [[Props]]
     */
   def props(controller: ActorRef,
             configuration: Configuration,
-            inputPath: String,
-            inputGenerator: Option[RelationalInputGenerator],
+            input: InputMethod,
             uccConsumer: PartialKey => _,
             fdConsumer: PartialFD => _) =
-    Props(new NodeManager(controller, configuration, inputPath, inputGenerator, uccConsumer, fdConsumer))
+    Props(new NodeManager(controller, configuration, input, uccConsumer, fdConsumer))
 
   /**
     * This message asks a [[NodeManager]] actor to initialize its [[ProfilingContext]] and [[Worker]]s using the
     * [[RelationalInputGenerator]].
     */
-  case object InitializeFromInputGenerator
+  case object InitializeProfilingContext
 
   /**
     * This message asks a [[NodeManager]] to report the number of dependencies its [[Worker]]s discovered.

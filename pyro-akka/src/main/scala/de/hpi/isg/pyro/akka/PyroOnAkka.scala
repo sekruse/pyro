@@ -1,120 +1,45 @@
 package de.hpi.isg.pyro.akka
 
-import java.lang.Boolean
-import java.util
-
 import akka.actor.ActorSystem
-import de.hpi.isg.mdms.clients.MetacrateClient
-import de.hpi.isg.mdms.model.MetadataStore
 import de.hpi.isg.pyro.akka.actors.Controller
 import de.hpi.isg.pyro.akka.utils.{AkkaUtils, Host}
 import de.hpi.isg.pyro.core.Configuration
-import de.hpi.isg.pyro.properties.MetanomePropertyLedger
-import de.metanome.algorithm_integration.{AlgorithmConfigurationException, AlgorithmExecutionException}
-import de.metanome.algorithm_integration.algorithm_types._
-import de.metanome.algorithm_integration.configuration.{ConfigurationRequirement, ConfigurationRequirementFileInput, ConfigurationSetting}
+import de.hpi.isg.pyro.model.{PartialFD, PartialKey}
+import de.metanome.algorithm_integration.configuration.ConfigurationSettingFileInput
 import de.metanome.algorithm_integration.input.RelationalInputGenerator
-import de.metanome.algorithm_integration.result_receiver.{FunctionalDependencyResultReceiver, UniqueColumnCombinationResultReceiver}
-import de.metanome.backend.result_receiver.ResultReceiver
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
+/**
+  * This is the main entry point to run Pyro on Akka.
+  */
+object PyroOnAkka {
 
-class PyroOnAkka extends MetacrateClient
-  with FunctionalDependencyAlgorithm
-  with UniqueColumnCombinationsAlgorithm
-  with IntegerParameterAlgorithm
-  with StringParameterAlgorithm
-  with RelationalInputParameterAlgorithm
-  with BooleanParameterAlgorithm {
-
-  private val logger = LoggerFactory.getLogger(getClass)
-
+  private lazy val logger = LoggerFactory.getLogger(getClass)
 
   /**
-    * If a [[MetadataStore]] is set, then it should be used to collect dependencies.
+    * Run Pyro using Akka.
+    *
+    * @param input         describes how to obtain the input relation to profile
+    * @param output        descirbes what to do with discovered dependencies
+    * @param configuration describes how to profile
+    * @param hosts         hosts to do the profiling on;
+    *                      the first host determines where to run the Akka's controller and result receiver and should
+    *                      be placed on this machine;
+    *                      leave blank to use a non-distributed setup
+    * @throws java.lang.Exception if the profiling failed
     */
-  private var metadataStore: MetadataStore = _
+  @throws(classOf[Exception])
+  def apply(input: InputMethod,
+            output: OutputMethod,
+            configuration: Configuration,
+            hosts: Array[Host] = Array()): Unit = {
 
-  /**
-    * Metanome's way of providing input data.
-    */
-  private var inputGenerator: RelationalInputGenerator = _
-
-  /**
-    * Metanome's way of collecting dependencies.
-    */
-  private var fdResultReceiver: FunctionalDependencyResultReceiver = _
-
-  /**
-    * Metanome's way of collecting dependencies.
-    */
-  private var uccResultReceiver: UniqueColumnCombinationResultReceiver = _
-
-  /**
-    * Maintains the configuration of Pyro.
-    */
-  private var configuration: Configuration = new Configuration
-
-  /**
-    * Utility to serve Metanome properties from the [[configuration]] via reflection.
-    */
-  private lazy val propertyLedger: MetanomePropertyLedger = MetanomePropertyLedger.createFor(configuration)
-
-  override def getConfigurationRequirements: util.ArrayList[ConfigurationRequirement[_ <: ConfigurationSetting]] = {
-    val configurationRequirement = new util.ArrayList[ConfigurationRequirement[_ <: ConfigurationSetting]]
-    try
-      propertyLedger.contributeConfigurationRequirements(configurationRequirement)
-    catch {
-      case e: AlgorithmConfigurationException => {
-        throw new RuntimeException(e)
-      }
-    }
-    {
-      val requirement = new ConfigurationRequirementFileInput(PyroOnAkka.inputGeneratorConfigKey)
-      requirement.setRequired(true)
-      configurationRequirement.add(requirement)
-    }
-    configurationRequirement
-  }
-
-  override def setMetadataStore(metadataStore: MetadataStore): Unit = this.metadataStore = metadataStore
-
-  override def setResultReceiver(resultReceiver: FunctionalDependencyResultReceiver): Unit = fdResultReceiver = resultReceiver
-
-  override def setResultReceiver(resultReceiver: UniqueColumnCombinationResultReceiver): Unit = uccResultReceiver = resultReceiver
-
-  override def setIntegerConfigurationValue(identifier: String, values: Integer*): Unit =
-    propertyLedger.configure(configuration, identifier, values)
-
-  override def setStringConfigurationValue(identifier: String, values: String*): Unit =
-    propertyLedger.configure(configuration, identifier, values)
-
-  override def setBooleanConfigurationValue(identifier: String, values: Boolean*): Unit =
-    propertyLedger.configure(configuration, identifier, values)
-
-  override def setRelationalInputConfigurationValue(identifier: String, values: RelationalInputGenerator*): Unit = {
-    require(values.size == 1, s"Exactly one relational input required, but found ${values.size}.")
-    inputGenerator = values.head
-  }
-
-  override def getAuthors: String = "Sebastian Kruse"
-
-  override def getDescription: String =
-    """Pyro uses a depth-first traversal strategy to find approximate UCCs and FDs.
-      |This implementation uses Akka to distribute the different search paths among cores and/or among machines in a
-      |cluster.
-    """.stripMargin
-
-  override def execute(): Unit = {
     logger.info("Start profiling with Pyro on Akka...")
     val startMillis = System.currentTimeMillis
-
-    val hosts =
-      if (configuration.hosts == null || configuration.hosts.isEmpty) Array[Host]()
-      else configuration.hosts.split(";").map(Host.parse)
 
     // Create the actor sytem.
     val system = ActorSystem("pyro",
@@ -122,48 +47,69 @@ class PyroOnAkka extends MetacrateClient
       else AkkaUtils.getRemoteAkkaConfig(hosts.head)
     )
 
-    object SuccessFlag { private[PyroOnAkka] var isSuccess = false }
+    // Create a success flag to inject into the actor system to find out whether it terminated properly.
+    object SuccessFlag {
+      private[PyroOnAkka] var isSuccess = false
+    }
 
     // Start a controller for the profiling.
     Controller.start(system, configuration,
-      inputPath = "(unknown path)",
-      inputGenerator = Some(inputGenerator),
-      uccConsumer = Some(println),
-      fdConsumer = Some(println),
-      hosts = hosts,
+      input,
+      output,
+      hosts,
       onSuccess = () => SuccessFlag.isSuccess = true
     )
 
     // Wait for Akka to finish its job.
     Await.ready(system.whenTerminated, 365 days)
     logger.info(f"Profiled with Pyro in ${System.currentTimeMillis - startMillis}%,d ms.")
-    if (!SuccessFlag.isSuccess) throw new AlgorithmExecutionException("Success flag is not set.")
+    if (!SuccessFlag.isSuccess) throw new Exception("Success flag is not set.")
   }
-}
 
-/**
-  * This is the main entry point to run Pyro on Akka.
-  */
-object PyroOnAkka {
+  /**
+    * Start a new [[ActorSystem]] at the given [[Host]]. This method blocks until the [[ActorSystem]] is terminated.
+    * @param host the [[Host]]
+    */
+  def startWorker(host: Host): Unit = {
+    // Create the actor sytem.
+    logger.info("Starting a new actor system...")
+    val system = ActorSystem("pyro", AkkaUtils.getRemoteAkkaConfig(host))
+    logger.info(s"Started $system.")
 
-  private val inputGeneratorConfigKey = "inputFile"
-
-  def apply(configuration: Configuration,
-            inputPath: String,
-            inputGenerator: Option[RelationalInputGenerator] = None,
-            resultReceiver: Option[ResultReceiver] = None,
-            hosts: Array[Host] = Array()): Unit = {
-
-
-    val pyro = new PyroOnAkka
-    pyro.configuration = configuration
-    inputGenerator foreach { e => pyro.setRelationalInputConfigurationValue(inputGeneratorConfigKey, e) }
-    resultReceiver foreach { e =>
-      if (e.isInstanceOf[UniqueColumnCombinationResultReceiver]) pyro.setResultReceiver(e.asInstanceOf[UniqueColumnCombinationResultReceiver])
-      if (e.isInstanceOf[FunctionalDependencyResultReceiver]) pyro.setResultReceiver(e.asInstanceOf[FunctionalDependencyResultReceiver])
-    }
-
-    pyro.execute()
+    // Wait for Akka to finish its job.
+    Await.ready(system.whenTerminated, 365 days)
+    logger.info("Actor system terminated.")
   }
+
+  /**
+    * Describes a way of obtaining the input data to profile.
+    */
+  sealed trait InputMethod
+
+  /**
+    * Describes an [[InputMethod]] that uses a [[RelationalInputGenerator]] provided by Metanome.
+    *
+    * @param generator the [[RelationalInputGenerator]]
+    */
+  case class RelationalInputGeneratorInputMethod(generator: RelationalInputGenerator) extends InputMethod
+
+  /**
+    * Describes an [[InputMethod]] where the input relation is read from some local CSV file. We assume that CSV file
+    * to be present on every machine the profiling runs on.
+    *
+    * @param inputPath   the (local filesystem) path to the input CSV file(s)
+    * @param csvSettings describes how to parse the CSV files
+    */
+  case class LocalFileInputMethod(inputPath: String, csvSettings: ConfigurationSettingFileInput) extends InputMethod
+
+  /**
+    * Describes a way of collecting the discovered dependencies.
+    *
+    * @param fdConsumer  optional callback for any discovered FD
+    * @param uccConsumer optional callback for any discovered UCC
+    */
+  case class OutputMethod(fdConsumer: Option[PartialFD => _],
+                          uccConsumer: Option[PartialKey => _])
+
 
 }

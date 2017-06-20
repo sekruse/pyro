@@ -25,10 +25,24 @@
         </profile>
     </profiles>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>net.alchim31.maven</groupId>
+                <artifactId>scala-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
     <dependencies>
         <dependency>
             <groupId>de.hpi.isg</groupId>
             <artifactId>pyro-core</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>de.hpi.isg</groupId>
+            <artifactId>pyro-akka</artifactId>
             <version>1.0-SNAPSHOT</version>
         </dependency>
     </dependencies>
