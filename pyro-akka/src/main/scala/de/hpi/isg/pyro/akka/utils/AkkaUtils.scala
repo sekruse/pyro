@@ -34,12 +34,16 @@ object AkkaUtils {
         |    serializers {
         |      java = "akka.serialization.JavaSerializer"
         |      proto = "akka.remote.serialization.ProtobufSerializer"
+        |      kryo = "com.twitter.chill.akka.ConfiguredAkkaSerializer"
         |    }
         |    serialization-bindings {
         |      "de.hpi.isg.pyro.akka.protobuf.Messages$DependencyMsg" = proto
+        |      "java.io.Serializable" = kryo
         |    }
+        |    // serialize-messages = off
         |  }
         |}
+        |com.twitter.chill.config.configuredinstantiator = "de.hpi.isg.pyro.akka.utils.SerializationUtils$PyroKryoInstantiator$"
       """.stripMargin
     ConfigFactory.parseString(configString)
   }

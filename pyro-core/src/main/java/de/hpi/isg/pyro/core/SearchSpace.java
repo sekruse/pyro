@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -34,6 +35,13 @@ public class SearchSpace implements Serializable {
      * Used to identify this instance.
      */
     public final int id;
+
+    /**
+     * Keeps track of how many workers/threads currently are processing this instance, i.e., are currently within the
+     * {@link #discover()} method.
+     *
+     */
+    private AtomicInteger numProcessors = new AtomicInteger(0);
 
     final DependencyStrategy strategy;
 
@@ -99,8 +107,12 @@ public class SearchSpace implements Serializable {
     /**
      * This method discovers data dependencies (either keys or FDs).
      */
-    public void discover() {
+    public boolean discover() {
+        this.numProcessors.incrementAndGet();
         this.discover(null);
+        synchronized (this.launchPads) {
+            return this.numProcessors.decrementAndGet() <= 0;
+        }
     }
 
     /**

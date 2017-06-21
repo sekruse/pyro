@@ -1,5 +1,7 @@
 package de.hpi.isg.pyro.util;
 
+import com.esotericsoftware.kryo.DefaultSerializer;
+import com.esotericsoftware.kryo.serializers.FieldSerializer;
 import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
 
@@ -10,6 +12,7 @@ import java.util.function.BiConsumer;
 /**
  * This class uses a trie to map {@link Vertical}s to values.
  */
+@DefaultSerializer(FieldSerializer.class)
 public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
 
     private final RelationSchema relation;

@@ -1,5 +1,8 @@
 package de.hpi.isg.pyro.akka.utils
 
+import com.esotericsoftware.kryo.serializers.FieldSerializer
+import com.twitter.chill.{KryoBase, ScalaKryoInstantiator}
+import de.hpi.isg.pyro.util.{SynchronizedVerticalMap, VerticalMap}
 import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Success, Try}
@@ -13,6 +16,7 @@ object SerializationUtils {
 
   /**
     * Clears the closure of the given object by setting the `$outer` property to `null`.
+    *
     * @param element the element whose closure is to be cleared
     * @return the element
     */
@@ -28,5 +32,24 @@ object SerializationUtils {
     element
   }
 
+  /**
+    * [[com.twitter.chill.KryoInstantiator]] that we use to configure Kryo to Pyro's needs.
+    */
+  object PyroKryoInstantiator extends ScalaKryoInstantiator {
+    override def newKryo(): KryoBase = {
+      val kryo = super.newKryo()
+
+      // VerticalMaps do not go together with the MapSerializer... serialize them as normal objects.
+      kryo.addDefaultSerializer(
+        classOf[VerticalMap[_]],
+        classOf[FieldSerializer[_]]
+      )
+      kryo.addDefaultSerializer(
+        classOf[SynchronizedVerticalMap[_]],
+        classOf[FieldSerializer[_]]
+      )
+      kryo
+    }
+  }
 
 }

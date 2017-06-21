@@ -1,9 +1,8 @@
 package de.hpi.isg.pyro.akka
 
 import akka.actor.ActorSystem
-import akka.serialization.{SerializationExtension, SerializationSetup, Serializer, SerializerDetails}
 import de.hpi.isg.pyro.akka.actors.Controller
-import de.hpi.isg.pyro.akka.utils.{AkkaUtils, Host, MySerializationExtension}
+import de.hpi.isg.pyro.akka.utils.{AkkaUtils, Host}
 import de.hpi.isg.pyro.core.Configuration
 import de.hpi.isg.pyro.model.{PartialFD, PartialKey}
 import de.metanome.algorithm_integration.configuration.ConfigurationSettingFileInput
@@ -69,6 +68,7 @@ object PyroOnAkka {
 
   /**
     * Start a new [[ActorSystem]] at the given [[Host]]. This method blocks until the [[ActorSystem]] is terminated.
+    *
     * @param host the [[Host]]
     */
   def startWorker(host: Host): Unit = {

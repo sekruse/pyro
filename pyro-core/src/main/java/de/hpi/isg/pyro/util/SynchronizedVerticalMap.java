@@ -28,6 +28,7 @@ public class SynchronizedVerticalMap<Value> extends VerticalMap<Value> {
             return super.size();
         } finally {
             this.lock.readLock().unlock();
+
         }
     }
 

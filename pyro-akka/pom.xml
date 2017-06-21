@@ -63,6 +63,10 @@
             <groupId>com.typesafe.akka</groupId>
             <artifactId>akka-testkit_${scala.version}</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.twitter</groupId>
+            <artifactId>chill-akka_${scala.version}</artifactId>
+        </dependency>
 
         <!-- Logging -->
         <dependency>
