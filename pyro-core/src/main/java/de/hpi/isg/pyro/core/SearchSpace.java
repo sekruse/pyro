@@ -12,6 +12,7 @@ import it.unimi.dsi.fastutil.ints.Int2IntSortedMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -23,11 +24,16 @@ import java.util.stream.Collectors;
  * This class describes a search space from that dependencies can be discovered. In particular, it also defines
  * Pyro's traversal logic to do this very discovery.
  */
-public class SearchSpace {
+public class SearchSpace implements Serializable {
 
     private static Logger logger = LoggerFactory.getLogger(SearchSpace.class);
 
     transient ProfilingContext context;
+
+    /**
+     * Used to identify this instance.
+     */
+    public final int id;
 
     final DependencyStrategy strategy;
 
@@ -61,8 +67,8 @@ public class SearchSpace {
      *
      * @param strategy defines the search within the new instance
      */
-    public SearchSpace(DependencyStrategy strategy, RelationSchema schema) {
-        this(strategy, null, new SynchronizedVerticalMap<>(schema), schema, 0, 1d);
+    public SearchSpace(int id, DependencyStrategy strategy, RelationSchema schema) {
+        this(id, strategy, null, new SynchronizedVerticalMap<>(schema), schema, 0, 1d);
     }
 
     /**
@@ -70,10 +76,11 @@ public class SearchSpace {
      *
      * @param strategy defines the search within the new instance
      */
-    public SearchSpace(DependencyStrategy strategy,
+    public SearchSpace(int id, DependencyStrategy strategy,
                        VerticalMap<Vertical> scope, VerticalMap<VerticalInfo> globalVisitees,
                        RelationSchema schema,
                        int recursionDepth, double sampleBoost) {
+        this.id = id;
         this.strategy = strategy;
         this.scope = scope;
         this.globalVisitees = globalVisitees;
@@ -500,7 +507,7 @@ public class SearchSpace {
         // hoping that they are closer to the minimum dependencies.
         // TODO: See whether this really pays off.
         PriorityQueue<DependencyCandidate> peaks = new PriorityQueue<>(DependencyCandidate.arityComparator);
-        peaks.add(new DependencyCandidate(mainPeak, new ConfidenceInterval(mainPeakError, mainPeakError), null));
+        peaks.add(new DependencyCandidate(mainPeak, new ConfidenceInterval(mainPeakError, mainPeakError), true));
 
         // Keep track of visited nodes, so as to visit no node twice.
         Set<Vertical> allegedNonDeps = new HashSet<>();
@@ -626,7 +633,7 @@ public class SearchSpace {
                 // entailed by our alleged minimal dependencies. Hence, the candidate becomes a new peak.
                 // Note in particular, that all missed minimal dependencies must be covered by any such false
                 // maximum non-dependency candidate.
-                peaks.add(new DependencyCandidate(allegedMaxNonDep, new ConfidenceInterval(error, error), null));
+                peaks.add(new DependencyCandidate(allegedMaxNonDep, new ConfidenceInterval(error, error), true));
             }
         }
 
@@ -662,8 +669,7 @@ public class SearchSpace {
             double newSampleBoost = sampleBoost * this.sampleBoost;
             if (logger.isDebugEnabled()) logger.debug("* Increasing sampling boost factor to {}.", newSampleBoost);
 
-
-            SearchSpace nestedSearchSpace = new SearchSpace(this.strategy,
+            SearchSpace nestedSearchSpace = new SearchSpace(-1, this.strategy,
                     newScope,
                     this.globalVisitees,
                     this.context.getSchema(),
@@ -780,7 +786,7 @@ public class SearchSpace {
                     // In particular, we test if this very node is a dependency itself. This is supposedly not expensive
                     // because we just falsified a parent.
                     double error = strategy.calculateError(minDepCandidate.vertical);
-                    minDepCandidate = new DependencyCandidate(minDepCandidate.vertical, new ConfidenceInterval(error, error), null);
+                    minDepCandidate = new DependencyCandidate(minDepCandidate.vertical, new ConfidenceInterval(error, error), true);
                     if (error > strategy.maxError) break;
                 }
             }
@@ -930,7 +936,7 @@ public class SearchSpace {
     /**
      * Contains data on the execution performance in a {@link SearchSpace}.
      */
-    public static class ProfilingData {
+    public static class ProfilingData implements Serializable {
         public final AtomicLong probingNanos = new AtomicLong(0L);
         public final AtomicLong numProbings = new AtomicLong(0L);
         public final AtomicLong ascendMillis = new AtomicLong(0L);

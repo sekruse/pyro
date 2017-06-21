@@ -3,13 +3,14 @@ package de.hpi.isg.pyro.util;
 import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
 
+import java.io.Serializable;
 import java.util.*;
 import java.util.function.BiConsumer;
 
 /**
  * This class uses a trie to map {@link Vertical}s to values.
  */
-public class VerticalMap<Value> implements Map<Vertical, Value> {
+public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
 
     private final RelationSchema relation;
 
@@ -181,7 +182,7 @@ public class VerticalMap<Value> implements Map<Vertical, Value> {
         return entrySet;
     }
 
-    private static final class SetTrie<Value> {
+    private static final class SetTrie<Value> implements Serializable {
 
         private final int offset, dimension;
 

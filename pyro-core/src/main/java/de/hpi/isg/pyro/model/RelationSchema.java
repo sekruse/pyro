@@ -6,6 +6,7 @@ import de.hpi.isg.pyro.util.VerticalMap;
 import de.metanome.algorithm_integration.ColumnCombination;
 import de.metanome.algorithm_integration.ColumnIdentifier;
 
+import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
@@ -15,7 +16,7 @@ import java.util.function.Predicate;
  *
  * @see RelationData
  */
-public class RelationSchema {
+public class RelationSchema implements Serializable {
 
     protected final String name;
 
@@ -66,7 +67,21 @@ public class RelationSchema {
 
         BitSet bitSet = new BitSet(this.getNumColumns());
         for (int i = 0; i < indices.length; i++) {
-            bitSet.set(i);
+            bitSet.set(indices[i]);
+        }
+        return this.getVertical(bitSet);
+    }
+
+    public Vertical getVertical(List<Integer> indices) {
+        if (indices.isEmpty()) return emptyVertical;
+
+        if (indices.size() == 1) {
+            return this.columns.get(indices.get(0));
+        }
+
+        BitSet bitSet = new BitSet(this.getNumColumns());
+        for (Integer index : indices) {
+            bitSet.set(index);
         }
         return this.getVertical(bitSet);
     }

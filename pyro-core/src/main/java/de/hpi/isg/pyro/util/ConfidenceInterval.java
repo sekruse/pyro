@@ -1,9 +1,11 @@
 package de.hpi.isg.pyro.util;
 
+import java.io.Serializable;
+
 /**
  * An interval consisting of two {@code double} values.
  */
-public class ConfidenceInterval {
+public class ConfidenceInterval implements Serializable {
 
     private final double min, max;
 

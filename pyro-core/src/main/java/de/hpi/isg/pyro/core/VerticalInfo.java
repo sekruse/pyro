@@ -2,11 +2,13 @@ package de.hpi.isg.pyro.core;
 
 import de.hpi.isg.pyro.model.Vertical;
 
+import java.io.Serializable;
+
 /**
  * This class hosts pruning information on {@link Vertical}s. This information has to be interpreted in the light of
  * some of some (implicit) {@link DependencyStrategy}.
  */
-public class VerticalInfo {
+public class VerticalInfo implements Serializable {
 
     /**
      * Whether the described {@link Vertical} forms a dependency.

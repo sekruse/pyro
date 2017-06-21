@@ -9,7 +9,6 @@ import de.hpi.isg.pyro.core.{ProfilingContext, SearchSpace}
   */
 class Worker(profilingContext: ProfilingContext) extends Actor with ActorLogging {
 
-
   override def receive = {
     case searchSpace: SearchSpace =>
       log.info(s"Start processing $searchSpace...")

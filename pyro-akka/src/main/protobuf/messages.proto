@@ -1,0 +1,20 @@
+syntax = "proto2";
+
+package messages;
+
+option java_package = "de.hpi.isg.pyro.akka.protobuf";
+
+message DependencyMsg {
+
+    required DependencyType dependencyType = 1;
+    required double error = 2;
+    required double score = 3;
+    repeated int32 lhs = 4;
+    optional int32 rhs = 5;
+
+    enum DependencyType {
+        FD = 0;
+        UCC = 1;
+    }
+
+}

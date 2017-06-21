@@ -31,6 +31,10 @@
             <groupId>com.beust</groupId>
             <artifactId>jcommander</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+        </dependency>
 
         <!--Metanome-->
         <dependency>
@@ -42,7 +46,7 @@
             <artifactId>backend</artifactId>
         </dependency>
 
-        <!--AKKA-->
+        <!--Akka-->
         <dependency>
             <groupId>com.typesafe.akka</groupId>
             <artifactId>akka-actor_${scala.version}</artifactId>
@@ -60,6 +64,7 @@
             <artifactId>akka-testkit_${scala.version}</artifactId>
         </dependency>
 
+        <!-- Logging -->
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>

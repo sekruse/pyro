@@ -36,7 +36,7 @@ public class FdG1Strategy extends DependencyStrategy {
         searchSpace.addLaunchPad(new DependencyCandidate(
                 this.context.relationData.getSchema().emptyVertical,
                 new ConfidenceInterval(zeroFdError, zeroFdError),
-                null
+                true
         ));
 
         searchSpace.isInitialized = true;
@@ -110,7 +110,7 @@ public class FdG1Strategy extends DependencyStrategy {
     @Override
     DependencyCandidate createDependencyCandidate(Vertical vertical) {
         if (this.context.agreeSetSamples == null) {
-            return new DependencyCandidate(vertical, new ConfidenceInterval(0, 1), null);
+            return new DependencyCandidate(vertical, new ConfidenceInterval(0, 1), false);
         }
 
         // Find the best available correlation provider.
@@ -120,7 +120,7 @@ public class FdG1Strategy extends DependencyStrategy {
                 .multiply(this.context.relationData.getNumTuplePairs());
 
         ConfidenceInterval g1 = this.calculateG1(numViolatingTuplePairs);
-        return new DependencyCandidate(vertical, g1, agreeSetSample);
+        return new DependencyCandidate(vertical, g1, false);
     }
 
     @Override

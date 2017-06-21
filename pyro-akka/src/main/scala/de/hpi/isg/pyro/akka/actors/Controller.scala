@@ -2,21 +2,23 @@ package de.hpi.isg.pyro.akka.actors
 
 import akka.actor.SupervisorStrategy.Escalate
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Address, Deploy, OneForOneStrategy, Props, SupervisorStrategy}
+import akka.pattern.ask
 import akka.remote.RemoteScope
 import akka.util.Timeout
 import de.hpi.isg.pyro.akka.PyroOnAkka.{InputMethod, OutputMethod}
-import de.hpi.isg.pyro.akka.actors.Collector.SignalWhenDone
-import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeProfilingContext, ReportNumDependencies}
+import de.hpi.isg.pyro.akka.actors.Collector.{InitializeCollector, SignalWhenDone}
+import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeProfilingContext, ProfilingTask, ReportNumDependencies, ReportProfilingContext}
 import de.hpi.isg.pyro.akka.utils.{AskingMany, Host}
-import de.hpi.isg.pyro.core.{Configuration, FdG1Strategy, KeyG1Strategy, SearchSpace}
-import de.hpi.isg.pyro.model.{PartialFD, PartialKey, RelationSchema}
+import de.hpi.isg.pyro.core._
+import de.hpi.isg.pyro.model.RelationSchema
 import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConversions._
 import scala.collection.mutable
-import scala.collection.mutable.ListBuffer
+import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.concurrent.duration._
 import scala.language.postfixOps
+import scala.util.{Failure, Success, Try}
 
 /**
   * The purpose of this [[Actor]] is to steer the basic execution of Pyro.
@@ -39,6 +41,8 @@ class Controller(configuration: Configuration,
     */
   implicit def timeout = Timeout(42 days)
 
+  implicit var profilingContext: ProfilingContext = _
+
   /**
     * Logger for this instance.
     */
@@ -49,6 +53,11 @@ class Controller(configuration: Configuration,
     * are per [[NodeManager]].
     */
   private val nodeManagerStates: mutable.Map[ActorRef, NodeManagerState] = mutable.Map()
+
+  /**
+    * The local [[NodeManager]] actor, i.e., the one that is on the same machine.
+    */
+  private var localNodeManager: ActorRef = _
 
   /**
     * [[ActorRef]] to the [[Collector]].
@@ -69,19 +78,11 @@ class Controller(configuration: Configuration,
     collector = context.actorOf(Collector.props(output.fdConsumer, output.uccConsumer), "collector")
 
     // Initialize NodeManagers.
-    val nodeManagerProps = {
-      val _collector = collector
-      NodeManager.props(self,
-        configuration,
-        input,
-        (ucc: PartialKey) => _collector ! ucc,
-        (fd: PartialFD) => _collector ! fd
-      )
-    }
+    val nodeManagerProps = NodeManager.props(self, configuration, input, collector)
     if (hosts.isEmpty) {
       // Create a local node manager only.
       log.info("Creating a local node manager...")
-      val localNodeManager = context.actorOf(nodeManagerProps)
+      localNodeManager = context.actorOf(nodeManagerProps)
       nodeManagerStates(localNodeManager) = NodeManagerState(numWorkers = 0, numSearchSpaces = 0)
     } else {
       // Create remote node managers.
@@ -89,6 +90,7 @@ class Controller(configuration: Configuration,
         log.info(s"Creating a remote node manager at $host:$port...")
         val deploy = new Deploy(RemoteScope(new Address("akka.tcp", "pyro", host, port)))
         val remoteNodeManager = context.actorOf(nodeManagerProps.withDeploy(deploy))
+        if (localNodeManager == null) localNodeManager = remoteNodeManager // By convention, the first host must be local.
         nodeManagerStates(remoteNodeManager) = NodeManagerState(numWorkers = 0, numSearchSpaces = 0)
       }
     }
@@ -99,9 +101,15 @@ class Controller(configuration: Configuration,
       askAll[NodeManagerState](nodeManagerStates.keys, InitializeProfilingContext) foreach {
         case (node, state) => nodeManagerStates(node) = state
       }
+      implicit val executionContext = context.system.dispatcher
+      (localNodeManager ? ReportProfilingContext).mapTo[ProfilingContextReport] onComplete {
+        case Success(ProfilingContextReport(ctx)) =>
+          // Initialize the Collector actor.
+          profilingContext = ctx
+          collector ! InitializeCollector(profilingContext)
 
-    case None => sys.error("Unsupported input mode.")
-
+        case Failure(e) => throw e
+      }
 
     case schema: RelationSchema =>
       if (searchSpaces == null) {
@@ -125,9 +133,17 @@ class Controller(configuration: Configuration,
         }
       }
 
-    case SearchSpaceReport(searchSpace, SearchSpaceComplete) =>
-      log.info(s"$searchSpace has been completed by ${sender()}.")
-      searchSpaces -= searchSpace
+    case SearchSpaceReport(searchSpaceId, SearchSpaceComplete) =>
+      Try {
+        val searchSpace = searchSpaces.keysIterator.find(_.id == searchSpaceId).getOrElse(throw new IllegalArgumentException)
+        log.info(s"$searchSpace has been completed by ${sender()}.")
+        searchSpaces -= searchSpace
+      } match {
+        case Success(_) =>
+          log.info(s"Sucessfully removed search space with ID $searchSpaceId.")
+        case Failure(throwable) =>
+          log.error(s"Could not remove search space with ID $searchSpaceId from $searchSpaces.", throwable)
+      }
 
     case CollectorComplete =>
       onSuccess()
@@ -152,10 +168,17 @@ class Controller(configuration: Configuration,
     */
   private def initializeSearchSpaces(schema: RelationSchema): Unit = {
     searchSpaces = mutable.Map()
+    val nextId = {
+      var i = -1;
+      () => {
+        i += 1;
+        i
+      }
+    }
     // Initialize the UCC search space.
     if (configuration.isFindKeys) {
       configuration.uccErrorMeasure match {
-        case "g1prime" => searchSpaces(new SearchSpace(new KeyG1Strategy(configuration.maxUccError), schema)) = mutable.Set()
+        case "g1prime" => searchSpaces(new SearchSpace(nextId(), new KeyG1Strategy(configuration.maxUccError), schema)) = mutable.Set()
         case other => sys.error(s"Unsupported error measure ($other).")
       }
 
@@ -166,7 +189,7 @@ class Controller(configuration: Configuration,
         configuration.fdErrorMeasure match {
           case "g1prime" =>
             val strategy = new FdG1Strategy(column, configuration.maxFdError)
-            searchSpaces(new SearchSpace(strategy, schema)) = mutable.Set()
+            searchSpaces(new SearchSpace(nextId(), strategy, schema)) = mutable.Set()
         }
       }
     }
@@ -185,7 +208,7 @@ class Controller(configuration: Configuration,
     nodeManagerStates.filter(_._2.load < 0).foreach(nodeQueue += _)
 
     // Collect the search spaces first and then assign them in a batch.
-    val assignments = mutable.Map[ActorRef, ListBuffer[SearchSpace]]()
+    val assignments = mutable.Map[ActorRef, ArrayBuffer[SearchSpace]]()
 
     // Distribute as many search spaces as possible.
     while (unassignedSearchSpaces.nonEmpty && nodeQueue.nonEmpty) {
@@ -198,7 +221,7 @@ class Controller(configuration: Configuration,
 
       // Assign the search space to the node.
       log.debug(s"Assigning $searchSpace to $node (load: ${state.load})")
-      assignments.getOrElseUpdate(node, ListBuffer()) += searchSpace
+      assignments.getOrElseUpdate(node, ArrayBuffer()) += searchSpace
 
       // Update the data structures.
       val newState = state + 1
@@ -209,7 +232,7 @@ class Controller(configuration: Configuration,
     // TODO: Do this in a synchonous fashion?
     // Finally, dispatch the assignments.
     assignments.foreach {
-      case (node, assignedSearchSpaces) => node ! assignedSearchSpaces
+      case (node, assignedSearchSpaces) => node ! ProfilingTask(assignedSearchSpaces)
     }
   }
 
@@ -235,7 +258,7 @@ object Controller {
 
     // Initialize the controller.
     val controller = actorSystem.actorOf(
-      Props(new Controller(configuration, input, output, hosts, onSuccess)),
+      Props(classOf[Controller], configuration, input, output, hosts, onSuccess),
       "controller"
     )
 
@@ -275,6 +298,13 @@ object Controller {
   }
 
   /**
+    * This message passes a [[ProfilingContext]]. This message should only be passed locally.
+    *
+    * @param profilingContext the [[ProfilingContext]]
+    */
+  case class ProfilingContextReport(profilingContext: ProfilingContext)
+
+  /**
     * Orders [[NodeManagerState]]s ascending by their load (`workers - assigned search spaces`).
     */
   implicit val nodeManagerLoadOrdering: Ordering[NodeManagerState] =
@@ -291,9 +321,9 @@ object Controller {
   /**
     * Describes the advancement of the processing of some [[SearchSpace]].
     *
-    * @param searchSpace the [[SearchSpace]]
+    * @param searchSpaceId the ID of the [[SearchSpace]]
     */
-  case class SearchSpaceReport(searchSpace: SearchSpace, state: SearchSpaceReportState)
+  case class SearchSpaceReport(searchSpaceId: Int, state: SearchSpaceReportState)
 
   /**
     * Describes a state for the [[SearchSpaceReport]].

@@ -112,7 +112,7 @@ class PyroAkka extends MetacrateClient
         configuration = configuration
       )
     } catch {
-      case e: _ => throw new AlgorithmExecutionException("Pyro failed.", e)
+      case e: Throwable => throw new AlgorithmExecutionException("Pyro failed.", e)
     }
   }
 }

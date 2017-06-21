@@ -3,6 +3,7 @@ package de.hpi.isg.pyro.model;
 import de.hpi.isg.pyro.util.PositionListIndex;
 import de.metanome.algorithm_integration.ColumnIdentifier;
 
+import java.io.Serializable;
 import java.util.BitSet;
 import java.util.Comparator;
 import java.util.function.ToDoubleFunction;
@@ -10,7 +11,7 @@ import java.util.function.ToDoubleFunction;
 /**
  * A vertical describes a set of {@link Column}s from a common {@link RelationSchema}.
  */
-public interface Vertical {
+public interface Vertical extends Serializable {
 
     /**
      * Retrieve the indices of the {@link Column}s wrt. their {@link RelationSchema}.

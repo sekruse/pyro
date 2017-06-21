@@ -32,15 +32,29 @@ object Pyro {
     jCommander.getParsedCommand match {
       case "profile" =>
         // Start Pyro.
-        PyroOnAkka(
-          LocalFileInputMethod(profileCommand.inputPath, profileCommand.csvSettings),
-          OutputMethod(Some(println _), Some(println _)),
-          profileCommand,
-          profileCommand.hosts
-        )
+        try {
+          PyroOnAkka(
+            LocalFileInputMethod(profileCommand.inputPath(0), profileCommand.csvSettings),
+            OutputMethod(Some(println _), Some(println _)),
+            profileCommand,
+            profileCommand.hosts
+          )
+        } catch {
+          case e: Throwable =>
+            println("Profiling failed.")
+            sys.exit(2)
+        }
 
       case "worker" =>
         PyroOnAkka.startWorker(startWorkerCommand.host)
+
+      case null =>
+        println(s"No command given. Available commands: profile, worker.")
+        sys.exit(1)
+
+      case other =>
+        println(s"Unknown command: $other. Available commands: profile, worker.")
+        sys.exit(1)
     }
   }
 
@@ -68,8 +82,8 @@ object Pyro {
       if (hostsDefinition == null || hostsDefinition.isEmpty) Array()
       else hostsDefinition.map(Host.parse).toArray
 
-    @Parameter(names = Array("--input-path"), description = "path to input file; should be present on all workers", required = true)
-    var inputPath: String = _
+    @Parameter(description = "path to input file; should be present on all workers", required = true, arity = 1)
+    var inputPath: java.util.List[String] = _
 
     @Parameter(names = Array("--csv-separator"), description = "CSV separator (char, semicolon, comma, pipe, tab)")
     var csvSeparator = ","
@@ -98,7 +112,7 @@ object Pyro {
       * @return the [[ConfigurationSettingFileInput]]
       */
     def csvSettings = new ConfigurationSettingFileInput(
-      inputPath,
+      inputPath(0),
       true,
       csvSeparator match {
         case "semicolon" => ';'
@@ -138,14 +152,14 @@ object Pyro {
   @Parameters(commandDescription = "start a passive worker")
   class StartWorkerCommand {
 
-    @Parameter(names = Array("--host"), description = "the host and port to bind the worker to, e.g., worker2:123", required = true)
-    var hostDefinition: String = _
+    @Parameter(description = "the host and port to bind the worker to, e.g., worker2:123", required = true, arity = 1)
+    var hostDefinition: java.util.List[String] = _
 
     /**
       * Provides the host to bind a worker to.
       * @return the [[Host]]
       */
-    def host: Host = Host.parse(hostDefinition)
+    def host: Host = Host.parse(hostDefinition(0))
   }
 
 }

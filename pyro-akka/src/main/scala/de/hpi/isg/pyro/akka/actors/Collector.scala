@@ -1,11 +1,11 @@
 package de.hpi.isg.pyro.akka.actors
 
-import java.util.concurrent.atomic.AtomicInteger
-
-import akka.actor.{Actor, ActorLogging, Props}
-import de.hpi.isg.pyro.akka.actors.Collector.SignalWhenDone
+import akka.actor.{Actor, ActorLogging, Props, SupervisorStrategy}
+import de.hpi.isg.pyro.akka.actors.Collector.{DiscoveredFD, DiscoveredUCC, InitializeCollector, SignalWhenDone}
 import de.hpi.isg.pyro.akka.actors.Controller.CollectorComplete
+import de.hpi.isg.pyro.akka.protobuf.Messages.DependencyMsg
 import de.hpi.isg.pyro.akka.utils.AkkaUtils
+import de.hpi.isg.pyro.core.ProfilingContext
 import de.hpi.isg.pyro.model.{PartialFD, PartialKey}
 
 /**
@@ -18,21 +18,26 @@ class Collector(optFdConsumer: Option[PartialFD => _],
   private var consumptionCounter = 0
   private var numExpectedDependencies = -1
 
+  implicit private var profilingContext: ProfilingContext = _
+
   private val fdConsumer = optFdConsumer.getOrElse({ _: PartialFD => })
   private val uccConsumer = optUccConsumer.getOrElse({ _: PartialKey => })
 
-  override val supervisorStrategy = AkkaUtils.escalateSupervisorStrategy
+  override val supervisorStrategy: SupervisorStrategy = AkkaUtils.escalateSupervisorStrategy
 
   override def receive = {
-    case fd: PartialFD =>
-      if (log.isDebugEnabled) log.debug(s"Received $fd from ${sender()}...")
-      fdConsumer(fd)
+    case InitializeCollector(ctx) =>
+      profilingContext = ctx
+
+    case DiscoveredFD(partialFD) =>
+      if (log.isDebugEnabled) log.debug(s"Received $partialFD from ${sender()}...")
+      fdConsumer(partialFD)
       consumptionCounter += 1
       signalWhenDone()
 
-    case ucc: PartialKey =>
-      if (log.isDebugEnabled) log.debug(s"Received $ucc from ${sender()}...")
-      uccConsumer(ucc)
+    case DiscoveredUCC(partialKey) =>
+      if (log.isDebugEnabled) log.debug(s"Received $partialKey from ${sender()}...")
+      uccConsumer(partialKey)
       consumptionCounter += 1
       signalWhenDone()
 
@@ -70,7 +75,14 @@ object Collector {
     */
   def props(optFdConsumer: Option[PartialFD => _],
             optUccConsumer: Option[PartialKey => _]) =
-    Props(new Collector(optFdConsumer, optUccConsumer))
+    Props(classOf[Collector], optFdConsumer, optUccConsumer)
+
+  /**
+    * This message asks to initialize a [[Collector]].
+    *
+    * @param profilingContext to do the initialization
+    */
+  case class InitializeCollector(profilingContext: ProfilingContext)
 
   /**
     * This message signals to shut down a [[Collector]] actor as soon as it has received the specified amount of
@@ -79,5 +91,63 @@ object Collector {
     * @param numExpectedDependencies the expected number of dependencies
     */
   case class SignalWhenDone(numExpectedDependencies: Int)
+
+  /**
+    * This message transports a discovered [[PartialFD]]. Note that this message is put as a [[DependencyMsg]]
+    * on the wire.
+    */
+  object DiscoveredFD {
+
+    def apply(partialFD: PartialFD): DependencyMsg = {
+      val builder = DependencyMsg.newBuilder()
+        .setDependencyType(DependencyMsg.DependencyType.FD)
+        .setError(partialFD.error)
+        .setScore(partialFD.score)
+        .setRhs(partialFD.rhs.getIndex)
+      for (lhs <- partialFD.lhs.getColumns) builder.addLhs(lhs.getIndex)
+      builder.build()
+    }
+
+    def unapply(dependencyMsg: DependencyMsg)(implicit profilingContext: ProfilingContext): Option[PartialFD] =
+      dependencyMsg.getDependencyType match {
+        case DependencyMsg.DependencyType.FD =>
+          Some(new PartialFD(
+            profilingContext.getSchema.getVertical(dependencyMsg.getLhsList),
+            profilingContext.getSchema.getColumn(dependencyMsg.getRhs),
+            dependencyMsg.getError,
+            dependencyMsg.getScore
+          ))
+        case _ => None
+      }
+
+  }
+
+  /**
+    * This message transports a discovered [[PartialKey]]. Note that this message is put as a [[DependencyMsg]]
+    * on the wire.
+    */
+  object DiscoveredUCC {
+
+    def apply(partialKey: PartialKey): DependencyMsg = {
+      val builder = DependencyMsg.newBuilder()
+        .setDependencyType(DependencyMsg.DependencyType.UCC)
+        .setError(partialKey.error)
+        .setScore(partialKey.score)
+      for (lhs <- partialKey.vertical.getColumns) builder.addLhs(lhs.getIndex)
+      builder.build()
+    }
+
+    def unapply(dependencyMsg: DependencyMsg)(implicit profilingContext: ProfilingContext): Option[PartialKey] =
+      dependencyMsg.getDependencyType match {
+        case DependencyMsg.DependencyType.UCC =>
+          Some(new PartialKey(
+            profilingContext.getSchema.getVertical(dependencyMsg.getLhsList),
+            dependencyMsg.getError,
+            dependencyMsg.getScore
+          ))
+        case _ => None
+      }
+
+  }
 
 }

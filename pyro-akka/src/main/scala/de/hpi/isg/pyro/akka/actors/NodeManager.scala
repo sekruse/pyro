@@ -6,8 +6,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, Props, SupervisorStrategy}
 import akka.routing.SmallestMailboxPool
 import de.hpi.isg.pyro.akka.PyroOnAkka.{InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
-import de.hpi.isg.pyro.akka.actors.Controller.{NodeManagerReport, NodeManagerState, SearchSpaceComplete, SearchSpaceReport}
-import de.hpi.isg.pyro.akka.actors.NodeManager.{InitializeProfilingContext, ReportNumDependencies, WorkerStopped}
+import de.hpi.isg.pyro.akka.actors.Collector.{DiscoveredFD, DiscoveredUCC}
+import de.hpi.isg.pyro.akka.actors.Controller.{NodeManagerReport, NodeManagerState, ProfilingContextReport, SearchSpaceComplete, SearchSpaceReport}
+import de.hpi.isg.pyro.akka.actors.NodeManager._
 import de.hpi.isg.pyro.akka.utils.AkkaUtils
 import de.hpi.isg.pyro.akka.utils.JavaScalaCompatibility._
 import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
@@ -24,8 +25,7 @@ import scala.collection.mutable
 class NodeManager(controller: ActorRef,
                   configuration: Configuration,
                   input: InputMethod,
-                  uccConsumer: PartialKey => _,
-                  fdConsumer: PartialFD => _)
+                  collector: ActorRef)
   extends Actor with ActorLogging {
 
   /**
@@ -98,7 +98,7 @@ class NodeManager(controller: ActorRef,
       // Pass the controller the schema.
       controller ! relation.getSchema
 
-    case searchSpaces: Seq[SearchSpace] =>
+    case ProfilingTask(searchSpaces) =>
       searchSpaces.foreach { searchSpace =>
         require(profilingContext != null)
         searchSpace.setContext(profilingContext)
@@ -107,6 +107,9 @@ class NodeManager(controller: ActorRef,
       }
       assignSearchSpaces()
 
+    case ReportProfilingContext =>
+      sender ! ProfilingContextReport(profilingContext)
+
     case WorkerStopped(searchSpace) =>
       numIdleWorkers += 1
       val newAssignedWorkers = numAssignedWorkers(searchSpace) - 1
@@ -114,7 +117,7 @@ class NodeManager(controller: ActorRef,
       // TODO: Check whether we actually fully processed the search space.
       if (newAssignedWorkers == 0) {
         numAssignedWorkers -= searchSpace
-        controller ! SearchSpaceReport(searchSpace, SearchSpaceComplete)
+        controller ! SearchSpaceReport(searchSpace.id, SearchSpaceComplete)
       }
 
       // Check if there are unprocessed search spaces right now.
@@ -146,11 +149,11 @@ class NodeManager(controller: ActorRef,
       configuration,
       relation,
       (ucc: PartialKey) => {
-        uccConsumer(ucc)
+        collector ! DiscoveredUCC(ucc)
         numDiscoveredDependencies.incrementAndGet()
       },
       (fd: PartialFD) => {
-        fdConsumer(fd)
+        collector ! DiscoveredFD(fd)
         numDiscoveredDependencies.incrementAndGet()
       }
     )
@@ -216,16 +219,14 @@ object NodeManager {
     * @param controller    that controls the new actor
     * @param configuration that defines what to profile and how
     * @param input         defines what to profile
-    * @param uccConsumer   should be called whenever a new [[PartialKey]] is discovered
-    * @param fdConsumer    should be called whenever a new [[PartialFD]] is discovered
+    * @param collector     to which discovered dependencies should be sent
     * @return the [[Props]]
     */
   def props(controller: ActorRef,
             configuration: Configuration,
             input: InputMethod,
-            uccConsumer: PartialKey => _,
-            fdConsumer: PartialFD => _) =
-    Props(new NodeManager(controller, configuration, input, uccConsumer, fdConsumer))
+            collector: ActorRef) =
+    Props(new NodeManager(controller, configuration, input, collector))
 
   /**
     * This message asks a [[NodeManager]] actor to initialize its [[ProfilingContext]] and [[Worker]]s using the
@@ -234,9 +235,22 @@ object NodeManager {
   case object InitializeProfilingContext
 
   /**
+    * This message asks a [[NodeManager]] to report its [[ProfilingContext]].
+    */
+  case object ReportProfilingContext
+
+  /**
+    * This message asks a [[NodeManager]] to profile the given [[SearchSpace]]s.
+    *
+    * @param searchSpaces the [[SearchSpace]]s
+    */
+  case class ProfilingTask(searchSpaces: Iterable[SearchSpace])
+
+  /**
     * This message asks a [[NodeManager]] to report the number of dependencies its [[Worker]]s discovered.
     */
   case object ReportNumDependencies
+
 
   /**
     * This message tells that some [[Worker]] stopped processing the given [[SearchSpace]].

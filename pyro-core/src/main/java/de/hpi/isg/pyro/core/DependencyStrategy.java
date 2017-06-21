@@ -5,11 +5,13 @@ import de.hpi.isg.pyro.model.Vertical;
 import de.hpi.isg.pyro.util.AgreeSetSample;
 import de.hpi.isg.pyro.util.PositionListIndex;
 
+import java.io.Serializable;
+
 /**
  * A dependency strategy defines how to estimate and evaluate dependency candidates of a certain kind. It furthermore
  * stores the parameters that guide the search.
  */
-abstract public class DependencyStrategy {
+abstract public class DependencyStrategy implements Serializable {
 
     /**
      * The maximum error permitted for dependencies.

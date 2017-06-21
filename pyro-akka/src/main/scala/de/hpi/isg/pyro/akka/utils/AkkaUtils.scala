@@ -30,6 +30,15 @@ object AkkaUtils {
         |  loggers = ["akka.event.slf4j.Slf4jLogger"]
         |  loglevel = "DEBUG"
         |  logging-filter = "akka.event.slf4j.Slf4jLoggingFilter"
+        |  actor {
+        |    serializers {
+        |      java = "akka.serialization.JavaSerializer"
+        |      proto = "akka.remote.serialization.ProtobufSerializer"
+        |    }
+        |    serialization-bindings {
+        |      "de.hpi.isg.pyro.akka.protobuf.Messages$DependencyMsg" = proto
+        |    }
+        |  }
         |}
       """.stripMargin
     ConfigFactory.parseString(configString)

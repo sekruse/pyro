@@ -12,6 +12,7 @@
         <module>pyro-core</module>
         <module>pyro-metanome</module>
         <module>pyro-akka</module>
+        <module>pyro-distro</module>
     </modules>
 
     <properties>
@@ -30,6 +31,13 @@
             <properties>
                 <logging.scope>compile</logging.scope>
             </properties>
+        </profile>
+        <!-- Build profile for pyro-akka. -->
+        <profile>
+            <id>akka-distro</id>
+            <modules>
+                <module>pyro-distro</module>
+            </modules>
         </profile>
     </profiles>
 
@@ -52,6 +60,28 @@
                     <groupId>net.alchim31.maven</groupId>
                     <artifactId>scala-maven-plugin</artifactId>
                     <version>3.2.2</version>
+                    <executions>
+                        <execution>
+                            <id>scala-compile</id>
+                            <phase>compile</phase>
+                            <goals>
+                                <goal>compile</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>scala-test-compile</id>
+                            <phase>test-compile</phase>
+                            <goals>
+                                <goal>testCompile</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-shade-plugin</artifactId>
+                    <version>3.0.0</version>
                 </plugin>
             </plugins>
         </pluginManagement>
@@ -155,6 +185,13 @@
                 <artifactId>logback-core</artifactId>
                 <version>LATEST</version>
                 <scope>${logging.scope}</scope>
+            </dependency>
+
+            <!-- Protocol buffers -->
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>2.5.0</version>
             </dependency>
 
             <!-- Testing -->

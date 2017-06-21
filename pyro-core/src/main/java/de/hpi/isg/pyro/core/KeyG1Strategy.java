@@ -61,11 +61,11 @@ public class KeyG1Strategy extends DependencyStrategy {
         if (vertical.getArity() == 1) {
             PositionListIndex pli = this.context.pliCache.getOrCreateFor(vertical);
             double keyError = this.calculateKeyError((long) pli.getNep());
-            return new DependencyCandidate(vertical, new ConfidenceInterval(keyError, keyError), null);
+            return new DependencyCandidate(vertical, new ConfidenceInterval(keyError, keyError), true);
         }
 
         if (this.context.agreeSetSamples == null) {
-            return new DependencyCandidate(vertical, new ConfidenceInterval(0, 1), null);
+            return new DependencyCandidate(vertical, new ConfidenceInterval(0, 1), false);
         }
 
         // Find the best available correlation provider.
@@ -74,7 +74,7 @@ public class KeyG1Strategy extends DependencyStrategy {
                 .estimateAgreements(vertical, this.context.configuration.estimateConfidence)
                 .multiply(this.context.relationData.getNumTuplePairs());
         ConfidenceInterval keyError = this.calculateKeyError(estimatedEqualityPairs);
-        return new DependencyCandidate(vertical, keyError, agreeSetSample);
+        return new DependencyCandidate(vertical, keyError, false);
     }
 
     @Override

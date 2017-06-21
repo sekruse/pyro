@@ -1,9 +1,9 @@
 package de.hpi.isg.pyro.core;
 
 import de.hpi.isg.pyro.model.Vertical;
-import de.hpi.isg.pyro.util.AgreeSetSample;
 import de.hpi.isg.pyro.util.ConfidenceInterval;
 
+import java.io.Serializable;
 import java.util.BitSet;
 import java.util.Comparator;
 import java.util.Objects;
@@ -12,7 +12,7 @@ import java.util.Objects;
  * This class describes a dependency candidate (in the light of some {@link DependencyStrategy}) including its
  * (estimated) error. Dependency candidates are ordered by their {@link #error} (ascending) and by the arity of the {@link #vertical} (descending).
  */
-public class DependencyCandidate implements Comparable<DependencyCandidate> {
+public class DependencyCandidate implements Comparable<DependencyCandidate>, Serializable {
 
     public static Comparator<DependencyCandidate> arityComparator = (tc1, tc2) -> {
         // Primarily order by the arity.
@@ -49,17 +49,18 @@ public class DependencyCandidate implements Comparable<DependencyCandidate> {
     /**
      * An estimate of the key or FD error.
      */
-    public ConfidenceInterval error;
+    public final ConfidenceInterval error;
 
     /**
-     * The {@link AgreeSetSample} from which this instance has been created.
+     * Tells whether the {@link #error} is exact.
      */
-    public AgreeSetSample agreeSetSample;
+    private final boolean isExact;
 
-    public DependencyCandidate(Vertical vertical, ConfidenceInterval error, AgreeSetSample agreeSetSample) {
+
+    public DependencyCandidate(Vertical vertical, ConfidenceInterval error, boolean isExact) {
         this.vertical = vertical;
         this.error = error;
-        this.agreeSetSample = agreeSetSample;
+        this.isExact = isExact;
     }
 
     @Override
@@ -86,7 +87,7 @@ public class DependencyCandidate implements Comparable<DependencyCandidate> {
 
     @Override
     public String toString() {
-        return String.format("candidate %s (err=%s, from %s)", this.vertical, this.error, this.agreeSetSample);
+        return String.format("candidate %s (err=%s, exact=%s)", this.vertical, this.error, this.isExact);
     }
 
     @Override
@@ -96,12 +97,12 @@ public class DependencyCandidate implements Comparable<DependencyCandidate> {
         final DependencyCandidate that = (DependencyCandidate) o;
         return Objects.equals(vertical, that.vertical) &&
                 Objects.equals(error, that.error) &&
-                Objects.equals(agreeSetSample, that.agreeSetSample);
+                (this.isExact == that.isExact);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(vertical, error, agreeSetSample);
+        return Objects.hash(vertical, error, isExact);
     }
 
     /**
@@ -110,6 +111,6 @@ public class DependencyCandidate implements Comparable<DependencyCandidate> {
      * @return whether the {@link #error} is exact
      */
     public boolean isExact() {
-        return this.error.isPoint() && (this.agreeSetSample == null || this.agreeSetSample.isExact());
+        return this.isExact && this.error.isPoint();
     }
 }
