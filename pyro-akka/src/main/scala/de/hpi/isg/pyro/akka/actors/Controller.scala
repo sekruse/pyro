@@ -111,7 +111,7 @@ class Controller(configuration: Configuration,
         case Failure(e) => throw e
       }
 
-    case schema: RelationSchema =>
+    case SchemaReport(schema) =>
       if (searchSpaces == null) {
         // Only handle the message if we have not yet initialized the search spaces.
         initializeSearchSpaces(schema)
@@ -270,6 +270,13 @@ object Controller {
     * Message to trigger the profiling.
     */
   case object Start
+
+  /**
+    * This message informs the [[Controller]] of the dataset's schema.
+    *
+    * @param schema the [[RelationSchema]]
+    */
+  case class SchemaReport(schema: RelationSchema)
 
   /**
     * This message communicates the state of a [[de.hpi.isg.pyro.akka.actors.NodeManager]].

@@ -39,9 +39,13 @@ public class SearchSpace implements Serializable {
     /**
      * Keeps track of how many workers/threads currently are processing this instance, i.e., are currently within the
      * {@link #discover()} method.
-     *
      */
     private AtomicInteger numProcessors = new AtomicInteger(0);
+
+    /**
+     * Interrupt flag to tell workers to stop processing this instance (but leave it in a consistent state).
+     */
+    private boolean interruptFlag = false;
 
     final DependencyStrategy strategy;
 
@@ -106,6 +110,8 @@ public class SearchSpace implements Serializable {
 
     /**
      * This method discovers data dependencies (either keys or FDs).
+     *
+     * @return whether there where no more processors operating on this instance as of the return from this method
      */
     public boolean discover() {
         this.numProcessors.incrementAndGet();
@@ -121,7 +127,7 @@ public class SearchSpace implements Serializable {
      * @param localVisitees known (non-)dependencies
      */
     private void discover(VerticalMap<VerticalInfo> localVisitees) {
-        while (true) {
+        while (this.interruptFlag) {
             DependencyCandidate launchPad = this.pollLaunchPad(localVisitees);
             if (launchPad == null) break;
 
@@ -207,7 +213,8 @@ public class SearchSpace implements Serializable {
             synchronized (this.launchPads) {
                 this.launchPads.add(launchPad);
             }
-            if (logger.isDebugEnabled()) logger.debug("Cowardly giving up on {}.", this.strategy.format(launchPad.vertical));
+            if (logger.isDebugEnabled())
+                logger.debug("Cowardly giving up on {}.", this.strategy.format(launchPad.vertical));
             return null;
         }
     }
@@ -943,6 +950,24 @@ public class SearchSpace implements Serializable {
     public void setContext(ProfilingContext context) {
         this.context = context;
         this.strategy.context = context;
+    }
+
+    /**
+     * Check whether the interrupt flag has been set on this instance.
+     *
+     * @return whether the interrupt flag has been set
+     */
+    public boolean isInterruptFlagSet() {
+        return this.interruptFlag;
+    }
+
+    /**
+     * Set or clear the interrupt flag.
+     *
+     * @param interruptFlag whether the interrupt flag should be set or not
+     */
+    public void setInterruptFlag(boolean interruptFlag) {
+        this.interruptFlag = interruptFlag;
     }
 
     /**

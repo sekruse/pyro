@@ -2,6 +2,7 @@ package de.hpi.isg.pyro.akka.actors
 
 import akka.actor.{Actor, ActorLogging, Props}
 import de.hpi.isg.pyro.akka.actors.NodeManager.WorkerStopped
+import de.hpi.isg.pyro.akka.actors.Worker.DiscoveryTask
 import de.hpi.isg.pyro.core.{ProfilingContext, SearchSpace}
 
 /**
@@ -10,12 +11,12 @@ import de.hpi.isg.pyro.core.{ProfilingContext, SearchSpace}
 class Worker(profilingContext: ProfilingContext) extends Actor with ActorLogging {
 
   override def receive = {
-    case searchSpace: SearchSpace =>
+    case DiscoveryTask(searchSpace) =>
       log.info(s"Start processing $searchSpace...")
-      searchSpace.discover()
+      val isSearchSpaceCleared = searchSpace.discover()
       log.info(s"Stopped processing $searchSpace.")
       // Thread.sleep(scala.util.Random.nextInt(1000) + 1000)
-      sender() ! WorkerStopped(searchSpace) // TODO: React appropriately.
+      sender() ! WorkerStopped(searchSpace, isSearchSpaceCleared) // TODO: React appropriately.
 
     case msg => log.error(s"I am a dummy worker and cannot handle $msg.")
   }
@@ -34,5 +35,12 @@ object Worker {
     * @return the [[Props]]
     */
   def props(profilingContext: ProfilingContext) = Props(classOf[Worker], profilingContext)
+
+  /**
+    * This message asks a [[Worker]] to profile a given [[SearchSpace]].
+    *
+    * @param searchSpace the [[SearchSpace]]
+    */
+  case class DiscoveryTask(searchSpace: SearchSpace)
 
 }

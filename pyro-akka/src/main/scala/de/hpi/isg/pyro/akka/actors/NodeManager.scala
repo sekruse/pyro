@@ -7,8 +7,9 @@ import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, Props, SupervisorS
 import akka.routing.SmallestMailboxPool
 import de.hpi.isg.pyro.akka.PyroOnAkka.{InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
 import de.hpi.isg.pyro.akka.actors.Collector.{DiscoveredFD, DiscoveredUCC}
-import de.hpi.isg.pyro.akka.actors.Controller.{NodeManagerReport, NodeManagerState, ProfilingContextReport, SearchSpaceComplete, SearchSpaceReport}
+import de.hpi.isg.pyro.akka.actors.Controller.{NodeManagerReport, NodeManagerState, ProfilingContextReport, SchemaReport, SearchSpaceComplete, SearchSpaceReport}
 import de.hpi.isg.pyro.akka.actors.NodeManager._
+import de.hpi.isg.pyro.akka.actors.Worker.DiscoveryTask
 import de.hpi.isg.pyro.akka.utils.AkkaUtils
 import de.hpi.isg.pyro.akka.utils.JavaScalaCompatibility._
 import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
@@ -96,7 +97,7 @@ class NodeManager(controller: ActorRef,
       createWorkers()
 
       // Pass the controller the schema.
-      controller ! relation.getSchema
+      controller ! SchemaReport(relation.getSchema)
 
     case ProfilingTask(searchSpaces) =>
       searchSpaces.foreach { searchSpace =>
@@ -110,15 +111,18 @@ class NodeManager(controller: ActorRef,
     case ReportProfilingContext =>
       sender ! ProfilingContextReport(profilingContext)
 
-    case WorkerStopped(searchSpace) =>
+    case WorkerStopped(searchSpace, isCleared) =>
       numIdleWorkers += 1
       val newAssignedWorkers = numAssignedWorkers(searchSpace) - 1
       numAssignedWorkers(searchSpace) = newAssignedWorkers
-      // TODO: Check whether we actually fully processed the search space.
       if (newAssignedWorkers == 0) {
+        // TODO: Handle interruption properly.
+        assert(isCleared)
+        assert(!searchSpace.isInterruptFlagSet)
         numAssignedWorkers -= searchSpace
         controller ! SearchSpaceReport(searchSpace.id, SearchSpaceComplete)
       }
+      // TODO: Handle drop out properly.
 
       // Check if there are unprocessed search spaces right now.
       val numOpenSearchSpaces = numAssignedWorkers.values.count(_ == 0)
@@ -190,7 +194,7 @@ class NodeManager(controller: ActorRef,
       val (searchSpace, numWorkingWorkers) = searchSpaceQueue.dequeue()
       searchSpace.setContext(profilingContext)
       log.debug(s"Assigning $searchSpace to a worker (processed by $numWorkingWorkers other workers)")
-      workerPool ! searchSpace
+      workerPool ! DiscoveryTask(searchSpace)
       numIdleWorkers -= 1
       numAssignedWorkers(searchSpace) = numAssignedWorkers(searchSpace) + 1
       if (checkAdmissionForAdditionalWorker(numWorkingWorkers + 1))
@@ -256,7 +260,8 @@ object NodeManager {
     * This message tells that some [[Worker]] stopped processing the given [[SearchSpace]].
     *
     * @param searchSpace the [[SearchSpace]]
+    * @param isCleared   whether the [[SearchSpace]] is not under processing anymore
     */
-  case class WorkerStopped(searchSpace: SearchSpace)
+  case class WorkerStopped(searchSpace: SearchSpace, isCleared: Boolean)
 
 }
