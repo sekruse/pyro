@@ -25,6 +25,13 @@
         <logging.scope>test</logging.scope>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>sonatype-nexus-snapshots</id>
+            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+        </repository>
+    </repositories>
+
     <profiles>
         <profile>
             <id>logging</id>
