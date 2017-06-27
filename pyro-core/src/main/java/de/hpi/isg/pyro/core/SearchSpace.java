@@ -15,7 +15,6 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -35,12 +34,6 @@ public class SearchSpace implements Serializable {
      * Used to identify this instance.
      */
     public final int id;
-
-    /**
-     * Keeps track of how many workers/threads currently are processing this instance, i.e., are currently within the
-     * {@link #discover()} method.
-     */
-    private AtomicInteger numProcessors = new AtomicInteger(0);
 
     /**
      * Interrupt flag to tell workers to stop processing this instance (but leave it in a consistent state).
@@ -113,12 +106,8 @@ public class SearchSpace implements Serializable {
      *
      * @return whether there where no more processors operating on this instance as of the return from this method
      */
-    public boolean discover() {
-        this.numProcessors.incrementAndGet();
+    public void discover() {
         this.discover(null);
-        synchronized (this.launchPads) {
-            return this.numProcessors.decrementAndGet() <= 0;
-        }
     }
 
     /**
@@ -127,7 +116,7 @@ public class SearchSpace implements Serializable {
      * @param localVisitees known (non-)dependencies
      */
     private void discover(VerticalMap<VerticalInfo> localVisitees) {
-        while (this.interruptFlag) {
+        while (!this.interruptFlag) {
             DependencyCandidate launchPad = this.pollLaunchPad(localVisitees);
             if (launchPad == null) break;
 
@@ -842,7 +831,7 @@ public class SearchSpace implements Serializable {
 
     @Override
     public String toString() {
-        return String.format("%s[%s]", this.getClass().getSimpleName(), this.strategy);
+        return String.format("%s[%d, %s]", this.getClass().getSimpleName(), this.id, this.strategy);
     }
 
     /**
@@ -968,6 +957,20 @@ public class SearchSpace implements Serializable {
      */
     public void setInterruptFlag(boolean interruptFlag) {
         this.interruptFlag = interruptFlag;
+    }
+
+    /**
+     * Tells whether there are launchpads in this search space.
+     *
+     * @return whether there are launchpads
+     */
+    public boolean hasLaunchpads() {
+        try {
+            this.launchPadIndexLock.lock();
+            return !this.launchPads.isEmpty();
+        } finally {
+            this.launchPadIndexLock.unlock();
+        }
     }
 
     /**

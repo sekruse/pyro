@@ -12,11 +12,11 @@ class Worker(profilingContext: ProfilingContext) extends Actor with ActorLogging
 
   override def receive = {
     case DiscoveryTask(searchSpace) =>
-      log.info(s"Start processing $searchSpace...")
+      log.debug(s"Start processing $searchSpace...")
       val isSearchSpaceCleared = searchSpace.discover()
-      log.info(s"Stopped processing $searchSpace.")
+      log.debug(s"Stopped processing $searchSpace (cleared: $isSearchSpaceCleared).")
       // Thread.sleep(scala.util.Random.nextInt(1000) + 1000)
-      sender() ! WorkerStopped(searchSpace, isSearchSpaceCleared) // TODO: React appropriately.
+      sender() ! WorkerStopped(searchSpace) // TODO: React appropriately.
 
     case msg => log.error(s"I am a dummy worker and cannot handle $msg.")
   }

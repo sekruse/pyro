@@ -7,7 +7,7 @@ import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, Props, SupervisorS
 import akka.routing.SmallestMailboxPool
 import de.hpi.isg.pyro.akka.PyroOnAkka.{InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
 import de.hpi.isg.pyro.akka.actors.Collector.{DiscoveredFD, DiscoveredUCC}
-import de.hpi.isg.pyro.akka.actors.Controller.{NodeManagerReport, NodeManagerState, ProfilingContextReport, SchemaReport, SearchSpaceComplete, SearchSpaceReport}
+import de.hpi.isg.pyro.akka.actors.Controller._
 import de.hpi.isg.pyro.akka.actors.NodeManager._
 import de.hpi.isg.pyro.akka.actors.Worker.DiscoveryTask
 import de.hpi.isg.pyro.akka.utils.AkkaUtils
@@ -16,6 +16,8 @@ import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
 import de.hpi.isg.pyro.model.{ColumnLayoutRelationData, PartialFD, PartialKey}
 import de.metanome.algorithm_integration.input.RelationalInputGenerator
 import de.metanome.backend.input.file.DefaultFileInputGenerator
+
+import scala.concurrent.duration._
 
 import scala.collection.mutable
 
@@ -53,7 +55,17 @@ class NodeManager(controller: ActorRef,
     * Maintains search spaces to be processed by this instance and keeps track of how many [[Worker]]s are processing
     * each one.
     */
-  var numAssignedWorkers: mutable.Map[SearchSpace, Int] = mutable.Map()
+  private val numAssignedWorkers: mutable.Map[SearchSpace, Int] = mutable.Map()
+
+  /**
+    * Maintains [[SearchSpace]]s that are interrupted.
+    */
+  private val suspendedSearchSpaces = mutable.Set[SearchSpace]()
+
+  /**
+    * Maintains [[SearchSpace]]s that [[Worker]]s dropped out from.
+    */
+  private val dropOutSearchSpaces = mutable.Set[SearchSpace]()
 
   /**
     * Counts the number of dependencies discovered.
@@ -68,11 +80,14 @@ class NodeManager(controller: ActorRef,
   }
 
   override def receive = {
+    case ReportCapacity =>
+      sender ! CapacityReport(capacity)
+
     case InitializeProfilingContext =>
       // Obtain the relation.
       val relation = input match {
         case RelationalInputGeneratorInputMethod(inputGenerator) =>
-          log.info(s"Loading relation from $inputGenerator...")
+          log.debug(s"Loading relation from $inputGenerator...")
           ColumnLayoutRelationData.createFrom(inputGenerator,
             configuration.isNullEqualNull,
             configuration.maxCols,
@@ -80,7 +95,7 @@ class NodeManager(controller: ActorRef,
           )
 
         case LocalFileInputMethod(inputPath, csvSettings) =>
-          log.info(s"Loading relation from $inputPath.")
+          log.debug(s"Loading relation from $inputPath.")
           val inputGenerator = new DefaultFileInputGenerator(new File(inputPath), csvSettings)
           ColumnLayoutRelationData.createFrom(inputGenerator,
             configuration.isNullEqualNull,
@@ -97,7 +112,7 @@ class NodeManager(controller: ActorRef,
       createWorkers()
 
       // Pass the controller the schema.
-      controller ! SchemaReport(relation.getSchema)
+      sender ! SchemaReport(relation.getSchema)
 
     case ProfilingTask(searchSpaces) =>
       searchSpaces.foreach { searchSpace =>
@@ -111,27 +126,35 @@ class NodeManager(controller: ActorRef,
     case ReportProfilingContext =>
       sender ! ProfilingContextReport(profilingContext)
 
-    case WorkerStopped(searchSpace, isCleared) =>
+    case WorkerStopped(searchSpace) =>
       numIdleWorkers += 1
       val newAssignedWorkers = numAssignedWorkers(searchSpace) - 1
       numAssignedWorkers(searchSpace) = newAssignedWorkers
-      if (newAssignedWorkers == 0) {
-        // TODO: Handle interruption properly.
-        assert(isCleared)
-        assert(!searchSpace.isInterruptFlagSet)
-        numAssignedWorkers -= searchSpace
-        controller ! SearchSpaceReport(searchSpace.id, SearchSpaceComplete)
-      }
-      // TODO: Handle drop out properly.
 
-      // Check if there are unprocessed search spaces right now.
-      val numOpenSearchSpaces = numAssignedWorkers.values.count(_ == 0)
-      if (numOpenSearchSpaces > 0) {
-        // TODO: Consider behaving differently when just having dropped out of a search space.
-        assignSearchSpaces()
+      if (newAssignedWorkers == 0) {
+        if (!searchSpace.hasLaunchpads) {
+          log.debug(s"$searchSpace has been completed.")
+          numAssignedWorkers -= searchSpace
+          controller ! SearchSpaceReport(searchSpace.id, SearchSpaceComplete)
+        } else if (searchSpace.isInterruptFlagSet) {
+          // TODO: Handle interruption properly.
+          sys.error("TODO")
+        } else {
+          sys.error("Stopped working on search space for an unknown reason.")
+        }
+
       } else {
-        // Otherwise, propagate new search space from controller.
-        controller ! NodeManagerState(numWorkers = numWorkers, numSearchSpaces = numAssignedWorkers.size)
+        log.info(s"Worker dropped out from $searchSpace.")
+        dropOutSearchSpaces += searchSpace
+        context.system.scheduler.scheduleOnce(100 milliseconds, self, ClearDropOutSeachSpaces)(context.system.dispatcher)
+      }
+
+    case ClearDropOutSeachSpaces =>
+      // TODO: Handle drop out properly.
+      if (dropOutSearchSpaces.nonEmpty) {
+        log.info("Clearing drop-outs.")
+        dropOutSearchSpaces.clear()
+        assignSearchSpaces()
       }
 
     case ReportNumDependencies =>
@@ -168,16 +191,20 @@ class NodeManager(controller: ActorRef,
     */
   def createWorkers() {
     // Allocate the workers.
-    numWorkers =
-      if (configuration.parallelism > 0) configuration.parallelism
-      else Runtime.getRuntime.availableProcessors
+    numWorkers = capacity
     workerPool = context.actorOf(SmallestMailboxPool(numWorkers).props(Worker.props(profilingContext)), "worker-pool")
     numIdleWorkers = numWorkers
     log.info(s"Started $numWorkers workers.")
-
-    // Inform the controller of the current search space.
-    sender ! NodeManagerState(numWorkers = numWorkers, numSearchSpaces = numAssignedWorkers.size)
   }
+
+  /**
+    * Determine how many [[Worker]]s this instance should have according to the [[configuration]] and resources.
+    *
+    * @return the number of [[Worker]]s
+    */
+  private def capacity =
+    if (configuration.parallelism > 0) configuration.parallelism
+    else Runtime.getRuntime.availableProcessors
 
   /**
     * Assign [[SearchSpace]]s to idling [[Worker]]s.
@@ -186,9 +213,9 @@ class NodeManager(controller: ActorRef,
     // Naive implementation. As long as there are idling workers, we just assign them whatever search space has the
     // fewest workers operating upon it.
     implicit val searchSpaceOrdering = Ordering.by[(SearchSpace, Int), Int](_._2)(Ordering.Int.reverse)
-    val searchSpaceQueue = mutable.PriorityQueue[(SearchSpace, Int)](
-      this.numAssignedWorkers.filter(entry => checkAdmissionForAdditionalWorker(entry._2)).toSeq: _*
-    )
+    val searchSpaceQueue = this.numAssignedWorkers.filter { case (searchSpace, assigned) =>
+       checkAdmissionForAdditionalWorker(assigned) && !suspendedSearchSpaces.contains(searchSpace)
+    }.to[mutable.PriorityQueue]
 
     while (numIdleWorkers > 0 && searchSpaceQueue.nonEmpty) {
       val (searchSpace, numWorkingWorkers) = searchSpaceQueue.dequeue()
@@ -233,6 +260,11 @@ object NodeManager {
     Props(new NodeManager(controller, configuration, input, collector))
 
   /**
+    * This messages asks how many [[Worker]]s a [[NodeManager]] can provide.
+    */
+  case object ReportCapacity
+
+  /**
     * This message asks a [[NodeManager]] actor to initialize its [[ProfilingContext]] and [[Worker]]s using the
     * [[RelationalInputGenerator]].
     */
@@ -255,13 +287,17 @@ object NodeManager {
     */
   case object ReportNumDependencies
 
+  /**
+    * This message tells a [[NodeManager]] to clear its drop-out [[SearchSpace]]s.
+    */
+  case object ClearDropOutSeachSpaces
+
 
   /**
     * This message tells that some [[Worker]] stopped processing the given [[SearchSpace]].
     *
     * @param searchSpace the [[SearchSpace]]
-    * @param isCleared   whether the [[SearchSpace]] is not under processing anymore
     */
-  case class WorkerStopped(searchSpace: SearchSpace, isCleared: Boolean)
+  case class WorkerStopped(searchSpace: SearchSpace)
 
 }
