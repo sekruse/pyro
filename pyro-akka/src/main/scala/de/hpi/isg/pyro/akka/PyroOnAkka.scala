@@ -1,6 +1,7 @@
 package de.hpi.isg.pyro.akka
 
 import akka.actor.ActorSystem
+import de.hpi.isg.profiledb.store.model.Experiment
 import de.hpi.isg.pyro.akka.actors.Controller
 import de.hpi.isg.pyro.akka.utils.{AkkaUtils, Host}
 import de.hpi.isg.pyro.core.Configuration
@@ -36,7 +37,8 @@ object PyroOnAkka {
   def apply(input: InputMethod,
             output: OutputMethod,
             configuration: Configuration,
-            hosts: Array[Host] = Array()): Unit = {
+            hosts: Array[Host] = Array(),
+            experiment: Option[Experiment] = None): Unit = {
 
     logger.info("Start profiling with Pyro on Akka...")
     val startMillis = System.currentTimeMillis
@@ -53,11 +55,13 @@ object PyroOnAkka {
     }
 
     // Start a controller for the profiling.
-    Controller.start(system, configuration,
+    Controller.start(system,
+      configuration,
       input,
       output,
       hosts,
-      onSuccess = () => SuccessFlag.isSuccess = true
+      onSuccess = () => SuccessFlag.isSuccess = true,
+      experiment
     )
 
     // Wait for Akka to finish its job.

@@ -1,10 +1,10 @@
 package de.hpi.isg.pyro.akka.actors
 
 import akka.actor.SupervisorStrategy.Escalate
-import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Address, Deploy, OneForOneStrategy, Props, SupervisorStrategy}
-import akka.pattern.ask
+import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Address, Deploy, OneForOneStrategy, PoisonPill, Props, SupervisorStrategy}
 import akka.remote.RemoteScope
 import akka.util.Timeout
+import de.hpi.isg.profiledb.store.model.Experiment
 import de.hpi.isg.pyro.akka.PyroOnAkka.{InputMethod, OutputMethod}
 import de.hpi.isg.pyro.akka.actors.Collector.{InitializeCollector, SignalWhenDone}
 import de.hpi.isg.pyro.akka.actors.NodeManager._
@@ -17,7 +17,6 @@ import org.slf4j.LoggerFactory
 import scala.collection.JavaConversions._
 import scala.concurrent.duration._
 import scala.language.postfixOps
-import scala.util.{Failure, Success}
 
 /**
   * The purpose of this [[Actor]] is to steer the basic execution of Pyro.
@@ -105,21 +104,20 @@ class Controller(configuration: Configuration,
     case Start =>
       log.debug("Received start message.")
       log.debug("Initializing profiling context on nodes...")
-      askAll[SchemaReport](scheduler.nodeManagers, InitializeProfilingContext) foreach {
-        case (_, report) => schema = report.schema
+      scheduler.nodeManagers foreach {
+        _ ! InitializeProfilingContext
       }
-      implicit val executionContext = context.system.dispatcher
-      (localNodeManager ? ReportProfilingContext).mapTo[ProfilingContextReport] onComplete {
-        case Success(ProfilingContextReport(ctx)) =>
-          // Initialize the Collector actor.
-          profilingContext = ctx
-          collector ! InitializeCollector(profilingContext)
 
-        case Failure(e) => throw e
+    case SchemaReport(relationSchema) =>
+      schema match {
+        case null =>
+          schema = relationSchema
+          collector ! InitializeCollector(schema)
+          initializeSearchSpaces(schema)
+        case _ =>
       }
-      initializeSearchSpaces(schema)
+      scheduler activateNodeManager sender
       assignSearchSpaces()
-
 
     case SearchSpaceReport(searchSpaceId, SearchSpaceComplete) =>
       log.debug(s"Received search space report from $sender.")
@@ -141,6 +139,9 @@ class Controller(configuration: Configuration,
     case e: Throwable =>
       log.error(e, "Exception encountered.")
       log.info("Shutting down due to exception.")
+      scheduler.nodeManagers foreach {
+        _ ! PoisonPill
+      }
       context.system.terminate()
       Escalate
   }
@@ -217,9 +218,11 @@ object Controller {
             input: InputMethod,
             output: OutputMethod,
             hosts: Array[Host] = Array(),
-            onSuccess: () => Unit) = {
+            onSuccess: () => Unit,
+            experiment: Option[Experiment] = None) = {
 
     // Initialize the controller.
+    // TODO: Pass experiment.
     val controller = actorSystem.actorOf(
       Props(classOf[Controller], configuration, input, output, hosts, onSuccess),
       "controller"

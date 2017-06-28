@@ -26,6 +26,12 @@ class GlobalScheduler(controller: Controller) {
     nodeManagerStates(nodeManager) = new NodeManagerState(nodeManager, numWorkers)
   }
 
+  def activateNodeManager(nodeManager: ActorRef): Unit = {
+    require(nodeManagerStates.keys.exists(_ == nodeManager))
+    require(!nodeManagerStates(nodeManager).isInitialized)
+    nodeManagerStates(nodeManager).isInitialized = true
+  }
+
   def registerSearchSpace(searchSpace: SearchSpace): Unit = {
     require(!searchSpaceStates.keys.exists(_ == searchSpace.id))
     searchSpaceStates(searchSpace.id) = new SearchSpaceState(searchSpace)
@@ -41,7 +47,7 @@ class GlobalScheduler(controller: Controller) {
     }
 
   def underloadedNodeManagerStates: Iterable[NodeManagerState] =
-    nodeManagerStates.values.filter(_.load < 0)
+    nodeManagerStates.values.filter(state => state.isInitialized && state.load < 0)
 
   def assignSearchSpaces(): Unit = {
     // Collect the unassigned search spaces.
@@ -106,6 +112,9 @@ class GlobalScheduler(controller: Controller) {
 
 /** This class keeps track of the state of a [[de.hpi.isg.pyro.akka.actors.NodeManager]]. */
 class NodeManagerState(val nodeManager: ActorRef, val numWorkers: Int) {
+
+  /** Whether the [[de.hpi.isg.pyro.akka.actors.NodeManager]] is initialized and can start profiling. */
+  var isInitialized = false
 
   /** IDs of the [[de.hpi.isg.pyro.core.SearchSpace]]s assigned to the [[de.hpi.isg.pyro.akka.actors.NodeManager]]. */
   val assignedSearchSpaceIds: mutable.Set[Int] = mutable.Set()

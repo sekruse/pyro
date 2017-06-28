@@ -1,17 +1,26 @@
 package de.hpi.isg.pyro.akka.algorithms
 
-import com.beust.jcommander.{JCommander, Parameter, Parameters}
+import java.io.File
+
+import com.beust.jcommander.{JCommander, Parameter, Parameters, ParametersDelegate}
+import de.hpi.isg.profiledb.ProfileDB
+import de.hpi.isg.profiledb.store.model.{Experiment, Subject}
 import de.hpi.isg.pyro.akka.PyroOnAkka
 import de.hpi.isg.pyro.akka.PyroOnAkka.{LocalFileInputMethod, OutputMethod}
 import de.hpi.isg.pyro.akka.utils.Host
+import de.hpi.isg.pyro.properties.MetanomePropertyLedger
 import de.metanome.algorithm_integration.configuration.ConfigurationSettingFileInput
+import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConversions._
+import scala.util.{Failure, Success, Try}
 
 /**
   * Main object to run Pyro.
   */
 object Pyro {
+
+  private lazy val log = LoggerFactory.getLogger(getClass)
 
   def main(args: Array[String]): Unit = {
     // Parse the configuration.
@@ -32,17 +41,23 @@ object Pyro {
     jCommander.getParsedCommand match {
       case "profile" =>
         // Start Pyro.
+        val experiment = profileCommand.profileDBParameters.createExperiment(profileCommand)
         try {
           PyroOnAkka(
             LocalFileInputMethod(profileCommand.inputPath(0), profileCommand.csvSettings),
             OutputMethod(Some(println _), Some(println _)),
             profileCommand,
-            profileCommand.hosts
+            profileCommand.hosts,
+            experiment
           )
         } catch {
-          case e: Throwable =>
+          case _: Throwable =>
             println("Profiling failed.")
             sys.exit(2)
+        }
+        experiment match {
+          case Some(exp) => profileCommand.profileDBParameters.store(exp)
+          case None =>
         }
 
       case "worker" =>
@@ -143,7 +158,57 @@ object Pyro {
       csvNullValue
     )
 
+    @ParametersDelegate
+    val profileDBParameters = new ProfileDBParameters
+
     // TODO: Metacrate parameters...
+  }
+
+  class ProfileDBParameters {
+
+    @Parameter(names = Array("--pdb"), description = "store ProfileDB experiments at this location")
+    var location: String = _
+
+    @Parameter(names = Array("--pdb-id"), description = "ID for the ProfileDB experiment")
+    var id: String = _
+
+    @Parameter(names = Array("--pdb-tags"), description = "tags for ProfileDB experiments", variableArity = true)
+    var tags: java.util.List[String] = new java.util.LinkedList
+
+    def isSpecified: Boolean = location != null && location.nonEmpty && id != null && id.nonEmpty
+
+    def createExperiment(profileCommand: ProfileCommand): Option[Experiment] = {
+      if (!isSpecified) return None
+
+      val experiment = new Experiment(id, new Subject("Pyro (Akka)", "1.0"), tags: _*)
+      val subject = experiment.getSubject
+      subject.addConfiguration("input", profileCommand.inputPath)
+      subject.addConfiguration("hosts", profileCommand.hosts)
+      val propertyLedger = MetanomePropertyLedger.createFor(profileCommand)
+      propertyLedger.getProperties foreach {
+        case (key, manager) =>
+          var value = manager.get(profileCommand)
+          value match {
+            case double: java.lang.Double if double.isInfinite || double.isNaN =>
+            case _ => subject.addConfiguration(key, value)
+          }
+      }
+
+      Some(experiment)
+    }
+
+    def store(experiment: Experiment): Unit = {
+      assert(isSpecified)
+
+      Try {
+        val profileDB = new ProfileDB
+        profileDB.append(new File(location), experiment)
+      } match {
+        case Success(_) => log.info(s"Stored experiment ${experiment.getId} to $location.")
+        case Failure(throwable) => log.error("Failed to store experiment.", throwable)
+      }
+    }
+
   }
 
   /**
@@ -157,6 +222,7 @@ object Pyro {
 
     /**
       * Provides the host to bind a worker to.
+      *
       * @return the [[Host]]
       */
     def host: Host = Host.parse(hostDefinition(0))

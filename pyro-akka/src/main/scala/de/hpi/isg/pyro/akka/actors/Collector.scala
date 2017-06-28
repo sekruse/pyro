@@ -5,8 +5,7 @@ import de.hpi.isg.pyro.akka.actors.Collector.{DiscoveredFD, DiscoveredUCC, Initi
 import de.hpi.isg.pyro.akka.actors.Controller.CollectorComplete
 import de.hpi.isg.pyro.akka.protobuf.Messages.DependencyMsg
 import de.hpi.isg.pyro.akka.utils.AkkaUtils
-import de.hpi.isg.pyro.core.ProfilingContext
-import de.hpi.isg.pyro.model.{PartialFD, PartialKey}
+import de.hpi.isg.pyro.model.{PartialFD, PartialKey, RelationSchema}
 
 /**
   * This [[Actor]] collects data profiling results.
@@ -18,7 +17,7 @@ class Collector(optFdConsumer: Option[PartialFD => _],
   private var consumptionCounter = 0
   private var numExpectedDependencies = -1
 
-  implicit private var profilingContext: ProfilingContext = _
+  implicit private var schema: RelationSchema = _
 
   private val fdConsumer = optFdConsumer.getOrElse({ _: PartialFD => })
   private val uccConsumer = optUccConsumer.getOrElse({ _: PartialKey => })
@@ -26,8 +25,10 @@ class Collector(optFdConsumer: Option[PartialFD => _],
   override val supervisorStrategy: SupervisorStrategy = AkkaUtils.escalateSupervisorStrategy
 
   override def receive = {
-    case InitializeCollector(ctx) =>
-      profilingContext = ctx
+    case InitializeCollector(relationSchema) =>
+      schema match {
+        case null => schema = relationSchema
+      }
 
     case DiscoveredFD(partialFD) =>
       if (log.isDebugEnabled) log.debug(s"Received $partialFD from ${sender()}...")
@@ -80,9 +81,9 @@ object Collector {
   /**
     * This message asks to initialize a [[Collector]].
     *
-    * @param profilingContext to do the initialization
+    * @param schema to do the initialization
     */
-  case class InitializeCollector(profilingContext: ProfilingContext)
+  case class InitializeCollector(schema: RelationSchema)
 
   /**
     * This message signals to shut down a [[Collector]] actor as soon as it has received the specified amount of
@@ -108,12 +109,12 @@ object Collector {
       builder.build()
     }
 
-    def unapply(dependencyMsg: DependencyMsg)(implicit profilingContext: ProfilingContext): Option[PartialFD] =
+    def unapply(dependencyMsg: DependencyMsg)(implicit schema: RelationSchema): Option[PartialFD] =
       dependencyMsg.getDependencyType match {
         case DependencyMsg.DependencyType.FD =>
           Some(new PartialFD(
-            profilingContext.getSchema.getVertical(dependencyMsg.getLhsList),
-            profilingContext.getSchema.getColumn(dependencyMsg.getRhs),
+            schema.getVertical(dependencyMsg.getLhsList),
+            schema.getColumn(dependencyMsg.getRhs),
             dependencyMsg.getError,
             dependencyMsg.getScore
           ))
@@ -137,11 +138,11 @@ object Collector {
       builder.build()
     }
 
-    def unapply(dependencyMsg: DependencyMsg)(implicit profilingContext: ProfilingContext): Option[PartialKey] =
+    def unapply(dependencyMsg: DependencyMsg)(implicit schema: RelationSchema): Option[PartialKey] =
       dependencyMsg.getDependencyType match {
         case DependencyMsg.DependencyType.UCC =>
           Some(new PartialKey(
-            profilingContext.getSchema.getVertical(dependencyMsg.getLhsList),
+            schema.getVertical(dependencyMsg.getLhsList),
             dependencyMsg.getError,
             dependencyMsg.getScore
           ))
