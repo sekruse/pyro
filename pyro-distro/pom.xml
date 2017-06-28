@@ -52,6 +52,9 @@
                                                 implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
                                             <resource>reference.conf</resource>
                                         </transformer>
+                                        <transformer implementation="org.apache.maven.plugins.shade.resource.DontIncludeResourceTransformer">
+                                            <resource>logback.xml</resource>
+                                        </transformer>
                                     </transformers>
                                 </configuration>
                             </execution>

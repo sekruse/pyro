@@ -93,13 +93,18 @@ class Controller(configuration: Configuration,
         }
       }
 
+    log.debug("Awaiting node capacity reports...")
     askAll[CapacityReport](nodeManagers, ReportCapacity) foreach {
-      case (nodeManager, CapacityReport(capacity)) => scheduler.registerNodeManager(nodeManager, capacity)
+      case (nodeManager, CapacityReport(capacity)) =>
+        scheduler.registerNodeManager(nodeManager, capacity)
+        log.debug(s"$nodeManager reported a capacity of $capacity.")
     }
   }
 
   override def receive: PartialFunction[Any, Unit] = {
     case Start =>
+      log.debug("Received start message.")
+      log.debug("Initializing profiling context on nodes...")
       askAll[SchemaReport](scheduler.nodeManagers, InitializeProfilingContext) foreach {
         case (_, report) => schema = report.schema
       }
@@ -117,12 +122,14 @@ class Controller(configuration: Configuration,
 
 
     case SearchSpaceReport(searchSpaceId, SearchSpaceComplete) =>
+      log.debug(s"Received search space report from $sender.")
       log.info(s"${scheduler.searchSpace(searchSpaceId)} is complete.")
       scheduler.handleSearchSpaceCompleted(sender, searchSpaceId)
       if (scheduler.isComplete) signalCollectorToComplete()
       else assignSearchSpaces()
 
     case CollectorComplete =>
+      log.debug(s"Collector has completed.")
       onSuccess()
       context.system.terminate()
 

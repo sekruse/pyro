@@ -18,8 +18,8 @@ import de.metanome.algorithm_integration.input.RelationalInputGenerator
 import de.metanome.backend.input.file.DefaultFileInputGenerator
 
 import scala.concurrent.duration._
-
 import scala.collection.mutable
+import scala.language.postfixOps
 
 /**
   * There should be one such [[Actor]] on each machine. It's purpose is to control the resources and profiling process
@@ -81,9 +81,12 @@ class NodeManager(controller: ActorRef,
 
   override def receive = {
     case ReportCapacity =>
+      log.debug(s"Asked for capacity report.")
       sender ! CapacityReport(capacity)
 
     case InitializeProfilingContext =>
+      log.debug(s"Asked to initialize profiling context.")
+
       // Obtain the relation.
       val relation = input match {
         case RelationalInputGeneratorInputMethod(inputGenerator) =>
@@ -115,6 +118,7 @@ class NodeManager(controller: ActorRef,
       sender ! SchemaReport(relation.getSchema)
 
     case ProfilingTask(searchSpaces) =>
+      log.debug(s"Was assigned $searchSpaces.")
       searchSpaces.foreach { searchSpace =>
         require(profilingContext != null)
         searchSpace.setContext(profilingContext)
@@ -124,6 +128,7 @@ class NodeManager(controller: ActorRef,
       assignSearchSpaces()
 
     case ReportProfilingContext =>
+      log.debug(s"Asked for profiling context.")
       sender ! ProfilingContextReport(profilingContext)
 
     case WorkerStopped(searchSpace) =>
@@ -158,6 +163,7 @@ class NodeManager(controller: ActorRef,
       }
 
     case ReportNumDependencies =>
+      log.debug(s"Asked to report number of discovered dependencies.")
       sender() ! NodeManagerReport(numDiscoveredDependencies.get)
 
     case deadLetter: DeadLetter =>
