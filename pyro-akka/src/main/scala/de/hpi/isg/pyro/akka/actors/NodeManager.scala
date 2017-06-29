@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, Props, SupervisorStrategy}
 import akka.routing.SmallestMailboxPool
-import de.hpi.isg.pyro.akka.PyroOnAkka.{InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
+import de.hpi.isg.pyro.akka.PyroOnAkka.{HdfsInputMethod, InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
 import de.hpi.isg.pyro.akka.actors.Collector.{DiscoveredFD, DiscoveredUCC}
 import de.hpi.isg.pyro.akka.actors.Controller._
 import de.hpi.isg.pyro.akka.actors.NodeManager._
@@ -14,11 +14,12 @@ import de.hpi.isg.pyro.akka.utils.AkkaUtils
 import de.hpi.isg.pyro.akka.utils.JavaScalaCompatibility._
 import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
 import de.hpi.isg.pyro.model.{ColumnLayoutRelationData, PartialFD, PartialKey}
+import de.hpi.isg.pyro.util.HdfsInputGenerator
 import de.metanome.algorithm_integration.input.RelationalInputGenerator
 import de.metanome.backend.input.file.DefaultFileInputGenerator
 
-import scala.concurrent.duration._
 import scala.collection.mutable
+import scala.concurrent.duration._
 import scala.language.postfixOps
 
 /**
@@ -90,7 +91,7 @@ class NodeManager(controller: ActorRef,
       // Obtain the relation.
       val relation = input match {
         case RelationalInputGeneratorInputMethod(inputGenerator) =>
-          log.debug(s"Loading relation from $inputGenerator...")
+          log.info(s"Loading relation from $inputGenerator...")
           ColumnLayoutRelationData.createFrom(inputGenerator,
             configuration.isNullEqualNull,
             configuration.maxCols,
@@ -98,8 +99,18 @@ class NodeManager(controller: ActorRef,
           )
 
         case LocalFileInputMethod(inputPath, csvSettings) =>
-          log.debug(s"Loading relation from $inputPath.")
+          log.info(s"Loading relation from $inputPath.")
           val inputGenerator = new DefaultFileInputGenerator(new File(inputPath), csvSettings)
+          ColumnLayoutRelationData.createFrom(inputGenerator,
+            configuration.isNullEqualNull,
+            configuration.maxCols,
+            configuration.maxRows
+          )
+
+        case HdfsInputMethod(inputUrl, csvSettings) =>
+          log.info(s"Loading relation from $inputUrl.")
+          csvSettings.setFileName(inputUrl)
+          val inputGenerator = new HdfsInputGenerator(csvSettings)
           ColumnLayoutRelationData.createFrom(inputGenerator,
             configuration.isNullEqualNull,
             configuration.maxCols,
@@ -220,7 +231,7 @@ class NodeManager(controller: ActorRef,
     // fewest workers operating upon it.
     implicit val searchSpaceOrdering = Ordering.by[(SearchSpace, Int), Int](_._2)(Ordering.Int.reverse)
     val searchSpaceQueue = this.numAssignedWorkers.filter { case (searchSpace, assigned) =>
-       checkAdmissionForAdditionalWorker(assigned) && !suspendedSearchSpaces.contains(searchSpace)
+      checkAdmissionForAdditionalWorker(assigned) && !suspendedSearchSpaces.contains(searchSpace)
     }.to[mutable.PriorityQueue]
 
     while (numIdleWorkers > 0 && searchSpaceQueue.nonEmpty) {

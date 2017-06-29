@@ -6,7 +6,7 @@ import com.beust.jcommander.{JCommander, Parameter, Parameters, ParametersDelega
 import de.hpi.isg.profiledb.ProfileDB
 import de.hpi.isg.profiledb.store.model.{Experiment, Subject}
 import de.hpi.isg.pyro.akka.PyroOnAkka
-import de.hpi.isg.pyro.akka.PyroOnAkka.{LocalFileInputMethod, OutputMethod}
+import de.hpi.isg.pyro.akka.PyroOnAkka.{HdfsInputMethod, InputMethod, LocalFileInputMethod, OutputMethod}
 import de.hpi.isg.pyro.akka.utils.Host
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger
 import de.metanome.algorithm_integration.configuration.ConfigurationSettingFileInput
@@ -44,7 +44,7 @@ object Pyro {
         val experiment = profileCommand.profileDBParameters.createExperiment(profileCommand)
         try {
           PyroOnAkka(
-            LocalFileInputMethod(profileCommand.inputPath(0), profileCommand.csvSettings),
+            createInputMethod(profileCommand),
             OutputMethod(Some(println _), Some(println _)),
             profileCommand,
             profileCommand.hosts,
@@ -71,6 +71,19 @@ object Pyro {
         println(s"Unknown command: $other. Available commands: profile, worker.")
         sys.exit(1)
     }
+
+  }
+
+  /**
+    * Creates a [[InputMethod]] according to the specification in the [[ProfileCommand]].
+    *
+    * @param profileCommand the [[ProfileCommand]]
+    * @return the [[InputMethod]]
+    */
+  private def createInputMethod(profileCommand: ProfileCommand): InputMethod = {
+    val inputPath = profileCommand.inputPath.head
+    if (inputPath.startsWith("hdfs://")) HdfsInputMethod(inputPath, profileCommand.csvSettings)
+    else LocalFileInputMethod(inputPath, profileCommand.csvSettings)
   }
 
   /**

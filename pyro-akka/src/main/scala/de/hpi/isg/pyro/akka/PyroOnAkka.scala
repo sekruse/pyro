@@ -108,6 +108,15 @@ object PyroOnAkka {
   case class LocalFileInputMethod(inputPath: String, csvSettings: ConfigurationSettingFileInput) extends InputMethod
 
   /**
+    * Describes an [[InputMethod]] where the input relation is read from some CSV file in HDFS. We assume that HDFS
+    * to be accessible from every machine the profiling runs on.
+    *
+    * @param url         the HDFS URL to the input CSV file(s)
+    * @param csvSettings describes how to parse the CSV files
+    */
+  case class HdfsInputMethod(url: String, csvSettings: ConfigurationSettingFileInput) extends InputMethod
+
+  /**
     * Describes a way of collecting the discovered dependencies.
     *
     * @param fdConsumer  optional callback for any discovered FD
