@@ -41,7 +41,9 @@ public class HdfsInputGenerator implements RelationalInputGenerator {
 
         try {
             // Create a HDFS reader.
-            FileSystem fs = FileSystem.get(new URI(hfdsUrl), new Configuration());
+            Configuration conf = new Configuration();
+            conf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
+            FileSystem fs = FileSystem.get(new URI(hfdsUrl), conf);
             BufferedReader reader = new BufferedReader(new InputStreamReader(fs.open(new Path(hfdsUrl))));
 
             // Create the input.
