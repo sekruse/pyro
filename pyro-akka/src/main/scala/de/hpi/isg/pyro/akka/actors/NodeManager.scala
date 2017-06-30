@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, Props, SupervisorStrategy}
 import akka.routing.SmallestMailboxPool
-import de.hpi.isg.pyro.akka.PyroOnAkka.{HdfsInputMethod, InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
+import de.hpi.isg.pyro.akka.algorithms.Pyro.{HdfsInputMethod, InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
 import de.hpi.isg.pyro.akka.actors.Collector.{DiscoveredFD, DiscoveredUCC}
 import de.hpi.isg.pyro.akka.actors.Controller._
 import de.hpi.isg.pyro.akka.actors.NodeManager._

@@ -80,12 +80,10 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <scope>${logging.scope}</scope>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-core</artifactId>
-            <scope>${logging.scope}</scope>
         </dependency>
     </dependencies>
 

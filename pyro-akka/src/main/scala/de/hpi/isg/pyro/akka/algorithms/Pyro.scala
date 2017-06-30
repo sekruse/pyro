@@ -1,18 +1,25 @@
 package de.hpi.isg.pyro.akka.algorithms
 
 import java.io.File
+import java.util
 
+import akka.actor.ActorSystem
 import com.beust.jcommander.{JCommander, Parameter, Parameters, ParametersDelegate}
 import de.hpi.isg.profiledb.ProfileDB
 import de.hpi.isg.profiledb.store.model.{Experiment, Subject}
-import de.hpi.isg.pyro.akka.PyroOnAkka
-import de.hpi.isg.pyro.akka.PyroOnAkka.{HdfsInputMethod, InputMethod, LocalFileInputMethod, OutputMethod}
-import de.hpi.isg.pyro.akka.utils.Host
+import de.hpi.isg.pyro.akka.actors.Controller
+import de.hpi.isg.pyro.akka.utils.{AkkaUtils, Host}
+import de.hpi.isg.pyro.core.Configuration
+import de.hpi.isg.pyro.model.{PartialFD, PartialKey}
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger
 import de.metanome.algorithm_integration.configuration.ConfigurationSettingFileInput
+import de.metanome.algorithm_integration.input.RelationalInputGenerator
 import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConversions._
+import scala.concurrent.Await
+import scala.concurrent.duration._
+import scala.language.postfixOps
 import scala.util.{Failure, Success, Try}
 
 /**
@@ -43,11 +50,12 @@ object Pyro {
         // Start Pyro.
         val experiment = profileCommand.profileDBParameters.createExperiment(profileCommand)
         try {
-          PyroOnAkka(
+          profile(
             createInputMethod(profileCommand),
             OutputMethod(Some(println _), Some(println _)),
             profileCommand,
-            profileCommand.hosts,
+            profileCommand.master,
+            profileCommand.workers,
             experiment
           )
         } catch {
@@ -61,7 +69,7 @@ object Pyro {
         }
 
       case "worker" =>
-        PyroOnAkka.startWorker(startWorkerCommand.host)
+        Pyro.startWorker(startWorkerCommand.host)
 
       case null =>
         println(s"No command given. Available commands: profile, worker.")
@@ -87,30 +95,146 @@ object Pyro {
   }
 
   /**
+    * Run Pyro using Akka.
+    *
+    * @param input         describes how to obtain the input relation to profile
+    * @param output        descirbes what to do with discovered dependencies
+    * @param configuration describes how to profile
+    * @param master     local host to bind to when profiling with remote workers
+    * @param workers       hosts to do the profiling on;
+    *                      be placed on this machine;
+    *                      leave blank to use a non-distributed setup
+    * @throws java.lang.Exception if the profiling failed
+    */
+  @throws(classOf[Exception])
+  def profile(input: InputMethod,
+            output: OutputMethod,
+            configuration: Configuration,
+            master: Option[Host] = None,
+            workers: Array[Host] = Array(),
+            experiment: Option[Experiment] = None): Unit = {
+
+    log.info("Start profiling with Pyro on Akka...")
+    val startMillis = System.currentTimeMillis
+
+    // Create the actor sytem.
+    val (config, masterHost) = master match {
+      case Some(host) =>
+        (AkkaUtils.getRemoteAkkaConfig(host), host)
+      case None if workers.isEmpty =>
+        (AkkaUtils.getLocalAkkaConfig, Host.localhost())
+      case _ =>
+        (AkkaUtils.getRemoteAkkaConfig(Host.localhost()), Host.localhost())
+    }
+    val system = ActorSystem("pyro", config)
+
+    // Create a success flag to inject into the actor system to find out whether it terminated properly.
+    object SuccessFlag {
+      private[Pyro] var isSuccess = false
+    }
+
+    // Start a controller for the profiling.
+    Controller.start(system,
+      configuration,
+      input,
+      output,
+      masterHost,
+      workers,
+      onSuccess = () => SuccessFlag.isSuccess = true,
+      experiment
+    )
+
+    // Wait for Akka to finish its job.
+    Await.ready(system.whenTerminated, 365 days)
+    log.info(f"Profiled with Pyro in ${System.currentTimeMillis - startMillis}%,d ms.")
+    if (!SuccessFlag.isSuccess) throw new Exception("Success flag is not set.")
+  }
+
+  /**
+    * Start a new [[ActorSystem]] at the given [[Host]]. This method blocks until the [[ActorSystem]] is terminated.
+    *
+    * @param host the [[Host]]
+    */
+  def startWorker(host: Host): Unit = {
+    // Create the actor sytem.
+    log.info(s"Starting a new actor system on $host...")
+    val system = ActorSystem("pyro", AkkaUtils.getRemoteAkkaConfig(host))
+    log.info(s"Started $system.")
+
+    // Wait for Akka to finish its job.
+    Await.ready(system.whenTerminated, 365 days)
+    log.info("Actor system terminated.")
+  }
+
+  /**
+    * Describes a way of obtaining the input data to profile.
+    */
+  sealed trait InputMethod
+
+  /**
+    * Describes an [[InputMethod]] that uses a [[RelationalInputGenerator]] provided by Metanome.
+    *
+    * @param generator the [[RelationalInputGenerator]]
+    */
+  case class RelationalInputGeneratorInputMethod(generator: RelationalInputGenerator) extends InputMethod
+
+  /**
+    * Describes an [[InputMethod]] where the input relation is read from some local CSV file. We assume that CSV file
+    * to be present on every machine the profiling runs on.
+    *
+    * @param inputPath   the (local filesystem) path to the input CSV file(s)
+    * @param csvSettings describes how to parse the CSV files
+    */
+  case class LocalFileInputMethod(inputPath: String, csvSettings: ConfigurationSettingFileInput) extends InputMethod
+
+  /**
+    * Describes an [[InputMethod]] where the input relation is read from some CSV file in HDFS. We assume that HDFS
+    * to be accessible from every machine the profiling runs on.
+    *
+    * @param url         the HDFS URL to the input CSV file(s)
+    * @param csvSettings describes how to parse the CSV files
+    */
+  case class HdfsInputMethod(url: String, csvSettings: ConfigurationSettingFileInput) extends InputMethod
+
+  /**
+    * Describes a way of collecting the discovered dependencies.
+    *
+    * @param fdConsumer  optional callback for any discovered FD
+    * @param uccConsumer optional callback for any discovered UCC
+    */
+  case class OutputMethod(fdConsumer: Option[PartialFD => _],
+                          uccConsumer: Option[PartialKey => _])
+
+
+  /**
     * Command-line parameters for Pyro.
     */
   @Parameters(commandDescription = "profile a dataset")
   class ProfileCommand extends de.hpi.isg.pyro.core.Configuration {
 
-    /**
-      * If Pyro should be run in the distributed mode, then this property should include a semicolon separated list of
-      * hosts to run on, e.g, `"worker1:35711;worker2:35711;worker3:35711"`, with the first host being the head of
-      * the operation (here: `worker1:35711`). Otherwise, this property should not be specified.
-      */
-    @Parameter(names = Array("--hosts"), description = "list of hosts to run Pyro on, e.g. worker1:123 worker2:123" +
-      "first host should be this machine; leave blank for a non-distributed set-up", variableArity = true)
-    var hostsDefinition: java.util.List[String] = _
+    @Parameter(names = Array("--master"), description = "<hostname>:<port> to bind to (should be local)")
+    var masterDefinition: String = _
 
     /**
-      * Parses the [[hostsDefinition]].
+      * If Pyro should be run in the distributed mode, then this property should include a semicolon separated list of
+      * hosts to run on, e.g, `"worker1:35711;worker2:35711;worker3:35711"`. The workers must be already running. A worker
+      * can share an actor system with the [[masterDefinition]].
+      */
+    @Parameter(names = Array("--workers"), description = "list of hosts to run Pyro on, e.g. worker1:123 worker2:123" +
+      "one worker may be collocated with the master; leave blank for a non-distributed set-up", variableArity = true)
+    var workersDefinition: java.util.List[String] = _
+
+    def master: Option[Host] = Option(masterDefinition).map(Host.parse)
+
+    /**
+      * Parses the [[workersDefinition]].
       *
       * @return an [[Array]] of [[Host]]s
       */
-    def hosts: Array[Host] =
-      if (hostsDefinition == null || hostsDefinition.isEmpty) Array()
-      else hostsDefinition.map(Host.parse).toArray
+    def workers: Array[Host] = if (workersDefinition == null || workersDefinition.isEmpty) Array()
+    else workersDefinition.map(Host.parse).toArray
 
-    @Parameter(description = "path to input file; should be present on all workers", required = true, arity = 1)
+    @Parameter(description = "path or HDFS URL to input file", required = true, arity = 1)
     var inputPath: java.util.List[String] = _
 
     @Parameter(names = Array("--csv-separator"), description = "CSV separator (char, semicolon, comma, pipe, tab)")
@@ -196,7 +320,7 @@ object Pyro {
       val experiment = new Experiment(id, new Subject("Pyro (Akka)", "1.0"), tags: _*)
       val subject = experiment.getSubject
       subject.addConfiguration("input", profileCommand.inputPath)
-      subject.addConfiguration("hosts", profileCommand.hosts)
+      subject.addConfiguration("workers", profileCommand.workers)
       val propertyLedger = MetanomePropertyLedger.createFor(profileCommand)
       propertyLedger.getProperties foreach {
         case (key, manager) =>
@@ -230,15 +354,18 @@ object Pyro {
   @Parameters(commandDescription = "start a passive worker")
   class StartWorkerCommand {
 
-    @Parameter(description = "the host and port to bind the worker to, e.g., worker2:123", required = true, arity = 1)
-    var hostDefinition: java.util.List[String] = _
+    @Parameter(description = "the host and port to bind the worker to, e.g., worker2:123", arity = 1)
+    var hostDefinition: java.util.List[String] = new util.ArrayList(1)
 
     /**
       * Provides the host to bind a worker to.
       *
       * @return the [[Host]]
       */
-    def host: Host = Host.parse(hostDefinition(0))
+    def host: Host =
+      if (hostDefinition.isEmpty) Host.localhost()
+      else Host.parse(hostDefinition(0))
+
   }
 
 }

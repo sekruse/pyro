@@ -5,8 +5,8 @@ import java.util
 
 import de.hpi.isg.mdms.clients.MetacrateClient
 import de.hpi.isg.mdms.model.MetadataStore
-import de.hpi.isg.pyro.akka.PyroOnAkka
 import de.hpi.isg.pyro.akka.PyroOnAkka.{OutputMethod, RelationalInputGeneratorInputMethod}
+import de.hpi.isg.pyro.akka.algorithms.Pyro
 import de.hpi.isg.pyro.core.Configuration
 import de.hpi.isg.pyro.model.{PartialFD, PartialKey}
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger
@@ -60,9 +60,7 @@ class PyroAkka extends MetacrateClient
     try
       propertyLedger.contributeConfigurationRequirements(configurationRequirement)
     catch {
-      case e: AlgorithmConfigurationException => {
-        throw new RuntimeException(e)
-      }
+      case e: AlgorithmConfigurationException => throw new RuntimeException(e)
     }
     {
       val requirement = new ConfigurationRequirementFileInput("inputFile")
@@ -103,7 +101,7 @@ class PyroAkka extends MetacrateClient
   @throws(classOf[AlgorithmExecutionException])
   override def execute(): Unit = {
     try {
-      PyroOnAkka(
+      Pyro(
         input = RelationalInputGeneratorInputMethod(this.inputGenerator),
         output = OutputMethod(
           fdConsumer = Some((fd: PartialFD) => this.fdResultReceiver.receiveResult(fd.toMetanomeFunctionalDependency)),

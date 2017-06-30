@@ -5,9 +5,9 @@ import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Address, Deploy, 
 import akka.remote.RemoteScope
 import akka.util.Timeout
 import de.hpi.isg.profiledb.store.model.Experiment
-import de.hpi.isg.pyro.akka.PyroOnAkka.{InputMethod, OutputMethod}
 import de.hpi.isg.pyro.akka.actors.Collector.{InitializeCollector, SignalWhenDone}
 import de.hpi.isg.pyro.akka.actors.NodeManager._
+import de.hpi.isg.pyro.akka.algorithms.Pyro.{InputMethod, OutputMethod}
 import de.hpi.isg.pyro.akka.scheduling.GlobalScheduler
 import de.hpi.isg.pyro.akka.utils.{AskingMany, Host}
 import de.hpi.isg.pyro.core._
@@ -26,7 +26,8 @@ import scala.language.postfixOps
 class Controller(configuration: Configuration,
                  input: InputMethod,
                  output: OutputMethod,
-                 hosts: Array[Host] = Array(),
+                 master: Host,
+                 workers: Array[Host] = Array(),
                  onSuccess: () => Unit)
   extends Actor with ActorLogging with AskingMany {
 
@@ -76,19 +77,14 @@ class Controller(configuration: Configuration,
     // Initialize NodeManagers.
     val nodeManagerProps = NodeManager.props(self, configuration, input, collector)
     val nodeManagers: Iterable[ActorRef] =
-      if (hosts.isEmpty) {
+      if (workers.isEmpty) {
         // Create a local node manager only.
         log.info("Creating a local node manager...")
-        localNodeManager = context.actorOf(nodeManagerProps, "nodemgr")
-        Iterable(localNodeManager)
+        Iterable(createNodeManager(nodeManagerProps))
       } else {
         // Create remote node managers.
-        hosts.zipWithIndex.map { case (Host(host, port), index) =>
-          log.info(s"Creating a remote node manager at $host:$port...")
-          val deploy = new Deploy(RemoteScope(new Address("akka.tcp", "pyro", host, port)))
-          val remoteNodeManager = context.actorOf(nodeManagerProps.withDeploy(deploy), f"nodemgr-$index%02d")
-          if (localNodeManager == null) localNodeManager = remoteNodeManager // By convention, the first host must be local.
-          remoteNodeManager
+        workers.zipWithIndex.map {
+          case (host, index) => createNodeManager(nodeManagerProps, Some(host), Some(index))
         }
       }
 
@@ -97,6 +93,37 @@ class Controller(configuration: Configuration,
       case (nodeManager, CapacityReport(capacity)) =>
         scheduler.registerNodeManager(nodeManager, capacity)
         log.debug(s"$nodeManager reported a capacity of $capacity.")
+    }
+  }
+
+  /**
+    * Create a new [[NodeManager]] actor. If a local actor is created, it will be stored to [[localNodeManager]].
+    *
+    * @param props the [[NodeManager]] initialization properties
+    * @param host  an optional [[Host]] to create the actor on; if [[None]], then a local actor will be created
+    * @param index an optional index for the name of the new actor
+    * @return an [[ActorRef]] to the created actor
+    */
+  private def createNodeManager(props: Props, host: Option[Host] = None, index: Option[Int] = None): ActorRef = {
+    val isCreateLocal = host match {
+      case Some(`master`) => true
+      case None => true
+      case _ => false
+    }
+    val name = index match {
+      case Some(i) => f"nodemgr-$i%02d"
+      case None => "nodemgr"
+    }
+    if (isCreateLocal) {
+      log.info("Creating a local node manager...")
+      localNodeManager = context.actorOf(props, name)
+      localNodeManager
+    } else {
+      val Host(hostName, port) = host.get
+      log.info(s"Creating a remote node manager at $hostName:$port...")
+      val deploy = new Deploy(RemoteScope(new Address("akka.tcp", "pyro", hostName, port)))
+      val remoteNodeManager = context.actorOf(props.withDeploy(deploy), name)
+      remoteNodeManager
     }
   }
 
@@ -147,7 +174,7 @@ class Controller(configuration: Configuration,
   }
 
   /**
-    * Initialize the [[searchSpaces]].
+    * Initialize the [[SearchSpace]]s.
     *
     * @param schema of the relation to be profiled
     */
@@ -217,14 +244,15 @@ object Controller {
             configuration: Configuration,
             input: InputMethod,
             output: OutputMethod,
-            hosts: Array[Host] = Array(),
+            master: Host,
+            workers: Array[Host] = Array(),
             onSuccess: () => Unit,
             experiment: Option[Experiment] = None) = {
 
     // Initialize the controller.
     // TODO: Pass experiment.
     val controller = actorSystem.actorOf(
-      Props(classOf[Controller], configuration, input, output, hosts, onSuccess),
+      Props(classOf[Controller], configuration, input, output, master, workers, onSuccess),
       "controller"
     )
 

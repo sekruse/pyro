@@ -194,19 +194,24 @@
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
-                <version>1.7.13</version>
+                <version>1.7.25</version>
             </dependency>
             <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>
-                <version>LATEST</version>
+                <version>1.2.3</version>
                 <scope>${logging.scope}</scope>
             </dependency>
             <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-core</artifactId>
-                <version>LATEST</version>
+                <version>1.2.3</version>
                 <scope>${logging.scope}</scope>
+            </dependency>
+            <dependency><!-- Exclude transitively pulled in logging dependencies. -->
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-log4j12</artifactId>
+                <scope>provided</scope>
             </dependency>
 
             <!-- Protocol buffers -->
@@ -214,6 +219,18 @@
                 <groupId>com.google.protobuf</groupId>
                 <artifactId>protobuf-java</artifactId>
                 <version>2.5.0</version>
+            </dependency>
+
+            <!-- Hadoop -->
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-hdfs</artifactId>
+                <version>2.6.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-common</artifactId>
+                <version>2.6.0</version>
             </dependency>
 
             <!-- Testing -->
