@@ -6,7 +6,7 @@ import java.util
 import akka.actor.ActorSystem
 import com.beust.jcommander.{JCommander, Parameter, Parameters, ParametersDelegate}
 import de.hpi.isg.profiledb.ProfileDB
-import de.hpi.isg.profiledb.store.model.{Experiment, Subject}
+import de.hpi.isg.profiledb.store.model.{Experiment, Subject, TimeMeasurement}
 import de.hpi.isg.pyro.akka.actors.{Controller, Reaper}
 import de.hpi.isg.pyro.akka.utils.{AkkaUtils, Host}
 import de.hpi.isg.pyro.core.Configuration
@@ -148,7 +148,13 @@ object Pyro {
 
     // Wait for Akka to finish its job.
     Await.ready(system.whenTerminated, 365 days)
-    log.info(f"Profiled with Pyro in ${System.currentTimeMillis - startMillis}%,d ms.")
+    val elapsedMillis = System.currentTimeMillis - startMillis
+    experiment foreach { exp =>
+      val timeMeasurement = new TimeMeasurement("elapsedMillis")
+      timeMeasurement.setMillis(elapsedMillis)
+      exp.addMeasurement(timeMeasurement)
+    }
+    log.info(f"Profiled with Pyro in $elapsedMillis%,d ms.")
     if (!SuccessFlag.isSuccess) throw new Exception("Success flag is not set.")
   }
 
