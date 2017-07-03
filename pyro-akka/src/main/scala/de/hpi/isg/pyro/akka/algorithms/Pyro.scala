@@ -303,6 +303,9 @@ object Pyro {
     // TODO: Metacrate parameters...
   }
 
+  /**
+    * Parameters specific to the initialization of a ProfileDB [[Experiment]].
+    */
   class ProfileDBParameters {
 
     @Parameter(names = Array("--pdb"), description = "store ProfileDB experiments at this location")
@@ -313,6 +316,9 @@ object Pyro {
 
     @Parameter(names = Array("--pdb-tags"), description = "tags for ProfileDB experiments", variableArity = true)
     var tags: java.util.List[String] = new java.util.LinkedList
+
+    @Parameter(names = Array("--pdb-conf"), description = "additional configuration values (<key>:<value>...)", variableArity = true)
+    var confSpec: java.util.List[String] = new java.util.LinkedList
 
     def isSpecified: Boolean = location != null && location.nonEmpty && id != null && id.nonEmpty
 
@@ -331,6 +337,12 @@ object Pyro {
             case double: java.lang.Double if double.isInfinite || double.isNaN =>
             case _ => subject.addConfiguration(key, value)
           }
+      }
+
+      val confSpecPattern = """([a-zA-Z_][^:]*):(.*)""".r
+      confSpec.foreach {
+        case confSpecPattern(key, value) => subject.addConfiguration(key, value)
+        case other => throw new IllegalArgumentException(s"Cannot parse ProfileDB configuration: '$other'.")
       }
 
       Some(experiment)
