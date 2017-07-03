@@ -4,6 +4,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, Props, SupervisorStrategy}
+import akka.remote.AssociationErrorEvent
 import akka.routing.SmallestMailboxPool
 import de.hpi.isg.pyro.akka.algorithms.Pyro.{HdfsInputMethod, InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
 import de.hpi.isg.pyro.akka.actors.Collector.{DiscoveredFD, DiscoveredUCC}
@@ -78,6 +79,7 @@ class NodeManager(controller: ActorRef,
   override def preStart(): Unit = {
     super.preStart()
     context.system.eventStream.subscribe(self, classOf[DeadLetter])
+    context.system.eventStream.subscribe(self, classOf[AssociationErrorEvent])
   }
 
   override def receive = {
@@ -178,7 +180,12 @@ class NodeManager(controller: ActorRef,
       sender() ! NodeManagerReport(numDiscoveredDependencies.get)
 
     case deadLetter: DeadLetter =>
-      sys.error(s"Encountered $deadLetter.")
+      log.error(s"Encountered $deadLetter.")
+      context.stop(self)
+
+    case associationErrorEvent: AssociationErrorEvent =>
+      log.error(s"Association error: $associationErrorEvent")
+      context.stop(self)
 
     case other => sys.error(s"[${self.path}] Unknown message: $other")
   }

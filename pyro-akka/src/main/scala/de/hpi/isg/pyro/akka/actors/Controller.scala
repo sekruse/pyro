@@ -1,18 +1,18 @@
 package de.hpi.isg.pyro.akka.actors
 
-import akka.actor.SupervisorStrategy.Escalate
-import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Address, Deploy, OneForOneStrategy, PoisonPill, Props, SupervisorStrategy}
-import akka.remote.RemoteScope
+import akka.actor.SupervisorStrategy.Stop
+import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Address, DeadLetter, Deploy, OneForOneStrategy, PoisonPill, Props, SupervisorStrategy, Terminated}
+import akka.remote.{AssociationErrorEvent, RemoteScope}
 import akka.util.Timeout
 import de.hpi.isg.profiledb.store.model.Experiment
 import de.hpi.isg.pyro.akka.actors.Collector.{InitializeCollector, SignalWhenDone}
 import de.hpi.isg.pyro.akka.actors.NodeManager._
+import de.hpi.isg.pyro.akka.actors.Reaper.WatchTask
 import de.hpi.isg.pyro.akka.algorithms.Pyro.{InputMethod, OutputMethod}
 import de.hpi.isg.pyro.akka.scheduling.GlobalScheduler
 import de.hpi.isg.pyro.akka.utils.{AskingMany, Host}
 import de.hpi.isg.pyro.core._
 import de.hpi.isg.pyro.model.RelationSchema
-import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConversions._
 import scala.concurrent.duration._
@@ -43,11 +43,6 @@ class Controller(configuration: Configuration,
   implicit var profilingContext: ProfilingContext = _
 
   /**
-    * Logger for this instance.
-    */
-  private val logger = LoggerFactory.getLogger(getClass)
-
-  /**
     * This variable is set once we obtain it. It should then not be changed anymore.
     */
   private var schema: RelationSchema = _
@@ -71,6 +66,10 @@ class Controller(configuration: Configuration,
   override def preStart(): Unit = {
     super.preStart()
 
+    // Make sure that all messages are sent properly.
+    context.system.eventStream.subscribe(self, classOf[DeadLetter])
+    context.system.eventStream.subscribe(self, classOf[AssociationErrorEvent])
+
     // Initialize the Collector actor.
     collector = context.actorOf(Collector.props(output.fdConsumer, output.uccConsumer), "collector")
 
@@ -88,11 +87,8 @@ class Controller(configuration: Configuration,
         }
       }
 
-    log.debug("Awaiting node capacity reports...")
-    askAll[CapacityReport](nodeManagers, ReportCapacity) foreach {
-      case (nodeManager, CapacityReport(capacity)) =>
-        scheduler.registerNodeManager(nodeManager, capacity)
-        log.debug(s"$nodeManager reported a capacity of $capacity.")
+    nodeManagers foreach {
+      _ ! ReportCapacity
     }
   }
 
@@ -114,26 +110,25 @@ class Controller(configuration: Configuration,
       case Some(i) => f"nodemgr-$i%02d"
       case None => "nodemgr"
     }
-    if (isCreateLocal) {
-      log.info("Creating a local node manager...")
-      localNodeManager = context.actorOf(props, name)
-      localNodeManager
-    } else {
-      val Host(hostName, port) = host.get
-      log.info(s"Creating a remote node manager at $hostName:$port...")
-      val deploy = new Deploy(RemoteScope(new Address("akka.tcp", "pyro", hostName, port)))
-      val remoteNodeManager = context.actorOf(props.withDeploy(deploy), name)
-      remoteNodeManager
-    }
+    context.watch(
+      if (isCreateLocal) {
+        log.info("Creating a local node manager...")
+        localNodeManager = context.actorOf(props, name)
+        localNodeManager
+      } else {
+        val Host(hostName, port) = host.get
+        log.info(s"Creating a remote node manager at $hostName:$port...")
+        val deploy = new Deploy(RemoteScope(new Address("akka.tcp", "pyro", hostName, port)))
+        context.actorOf(props.withDeploy(deploy), name)
+      }
+    )
   }
 
   override def receive: PartialFunction[Any, Unit] = {
-    case Start =>
-      log.debug("Received start message.")
-      log.debug("Initializing profiling context on nodes...")
-      scheduler.nodeManagers foreach {
-        _ ! InitializeProfilingContext
-      }
+    case CapacityReport(capacity) =>
+      log.info(s"$sender report a capacity of $capacity. Requesting initialization...")
+      scheduler.registerNodeManager(sender, capacity)
+      sender ! InitializeProfilingContext
 
     case SchemaReport(relationSchema) =>
       schema match {
@@ -156,21 +151,28 @@ class Controller(configuration: Configuration,
     case CollectorComplete =>
       log.debug(s"Collector has completed.")
       onSuccess()
-      context.system.terminate()
+      self ! PoisonPill
+
+    case e: AssociationErrorEvent =>
+      log.error(s"Association with ${e.remoteAddress} failed.")
+      context.stop(self)
+
+    case Terminated(actor) =>
+      log.warning(s"Detected termination of $actor.")
+      context.stop(self)
+
+    case DeadLetter(msg, sender, recipient) =>
+      log.error(s"Dead letter: $msg from $sender to $recipient.")
+      context.stop(self)
 
     case other =>
       sys.error(s"[${self.path}] Cannot handle $other")
   }
 
-  override val supervisorStrategy: SupervisorStrategy = OneForOneStrategy() {
+  override val supervisorStrategy: SupervisorStrategy = OneForOneStrategy(maxNrOfRetries = 0) {
     case e: Throwable =>
-      log.error(e, "Exception encountered.")
-      log.info("Shutting down due to exception.")
-      scheduler.nodeManagers foreach {
-        _ ! PoisonPill
-      }
-      context.system.terminate()
-      Escalate
+      log.error(e, "Exception encountered. Stopping...")
+      Stop
   }
 
   /**
@@ -256,14 +258,10 @@ object Controller {
       "controller"
     )
 
-    // Initiate the profiling task.
-    controller ! Start
+    // Register the new actor with the reaper, so as to determine when to terminate the actor system.
+    Reaper.select(actorSystem) ! WatchTask(controller)
   }
 
-  /**
-    * Message to trigger the profiling.
-    */
-  case object Start
 
   /**
     * This message informs the [[Controller]] of the dataset's schema.

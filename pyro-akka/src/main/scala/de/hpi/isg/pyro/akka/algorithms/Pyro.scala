@@ -7,7 +7,7 @@ import akka.actor.ActorSystem
 import com.beust.jcommander.{JCommander, Parameter, Parameters, ParametersDelegate}
 import de.hpi.isg.profiledb.ProfileDB
 import de.hpi.isg.profiledb.store.model.{Experiment, Subject}
-import de.hpi.isg.pyro.akka.actors.Controller
+import de.hpi.isg.pyro.akka.actors.{Controller, Reaper}
 import de.hpi.isg.pyro.akka.utils.{AkkaUtils, Host}
 import de.hpi.isg.pyro.core.Configuration
 import de.hpi.isg.pyro.model.{PartialFD, PartialKey}
@@ -59,8 +59,9 @@ object Pyro {
             experiment
           )
         } catch {
-          case _: Throwable =>
-            println("Profiling failed.")
+          case t: Throwable =>
+            println(s"Profiling failed: ${t.getMessage}")
+            log.error("Profiling failed.", t)
             sys.exit(2)
         }
         experiment match {
@@ -127,6 +128,7 @@ object Pyro {
         (AkkaUtils.getRemoteAkkaConfig(Host.localhost()), Host.localhost())
     }
     val system = ActorSystem("pyro", config)
+    Reaper(system)
 
     // Create a success flag to inject into the actor system to find out whether it terminated properly.
     object SuccessFlag {
