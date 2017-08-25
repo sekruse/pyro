@@ -308,7 +308,7 @@ public class FdTree {
                  nextAttribute != -1;
                  nextAttribute = lhs.nextSetBit(nextAttribute + 1)) {
                 Node child = this.children[nextAttribute];
-                if (child != null && child.containsSpecification(lhs, nextAttribute + 1, rhs)) return true;
+                if (child != null && child.containsGeneralization(lhs, nextAttribute + 1, rhs)) return true;
             }
 
             // If we have not found anything...
@@ -362,7 +362,6 @@ public class FdTree {
             if (!this.hasFd[rhs]) return;
 
             // First, remove all generalizations within child nodes.
-            boolean isChildHasFd = false;
             for (int nextAttribute = lhs.nextSetBit(currentAttributes.length());
                  nextAttribute != -1;
                  nextAttribute = lhs.nextSetBit(nextAttribute + 1)) {
@@ -372,7 +371,6 @@ public class FdTree {
                     child.removeGeneralizations(lhs, currentAttributes, rhs, specializations);
                     // TODO: Actually remove nodes.
                     currentAttributes.clear(nextAttribute);
-                    isChildHasFd |= child.hasFd[rhs];
                 }
             }
 
@@ -383,7 +381,13 @@ public class FdTree {
             }
 
             // Remove hints on FDs if we removed them all.
-            if (!isChildHasFd && this.occurrences[rhs] == 0) this.hasFd[rhs] = false;
+            if (this.occurrences[rhs] == 0) {
+                boolean hasStillFds = false;
+                for (int i = currentAttributes.length(); i < FdTree.this.numAttributes; i++) {
+                    if (hasStillFds = this.children[i] != null && this.children[i].hasFd[rhs]) break;
+                }
+                if (!hasStillFds) this.hasFd[rhs] = false;
+            }
         }
 
         /**

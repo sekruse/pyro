@@ -143,7 +143,8 @@ public class FdepX
             // Specify it for each non-FD.
             for (BitSet nonFdLhs : negativeCover.getAllLhs(rhs)) {
                 // Remove all violated FDs.
-                for (BitSet removedLhs : positiveCover.removeGeneralizations(nonFdLhs, rhs)) {
+                Collection<BitSet> removedLhss = positiveCover.removeGeneralizations(nonFdLhs, rhs);
+                for (BitSet removedLhs : removedLhss) {
                     // Specialize all removed FDs and insert them if they are not already covered.
                     for (int additionalAttribute = nonFdLhs.nextClearBit(0);
                          additionalAttribute != -1 && additionalAttribute < relationSchema.getNumColumns();
