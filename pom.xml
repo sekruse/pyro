@@ -46,6 +46,12 @@
                 <module>pyro-distro</module>
             </modules>
         </profile>
+        <profile>
+            <id>metanome-distro</id>
+            <modules>
+                <module>pyro-distro</module>
+            </modules>
+        </profile>
     </profiles>
 
     <build>
