@@ -55,6 +55,14 @@ public class FdepX
 
     @Override
     public void execute() throws AlgorithmExecutionException {
+        if (!this.configuration.isFindFds && !this.configuration.isFindKeys) {
+            throw new AlgorithmExecutionException("Told to find neither FDs nor UCCs.");
+        }
+        if (this.configuration.isFindFds && this.configuration.isFindKeys && this.configuration.maxFdError != this.configuration.maxUccError) {
+            throw new AlgorithmExecutionException("Cannot process different FD and UCC errors.");
+        }
+        double maxError = this.configuration.isFindFds ? this.configuration.maxFdError : this.configuration.maxUccError;
+
         // Load the input file.
         ArrayList<List<String>> relation = new ArrayList<>();
         RelationSchema relationSchema;
@@ -82,18 +90,19 @@ public class FdepX
         long onePercentOfAllTuplePairs = relation.size() * (relation.size() - 1L) / 2 / 100;
         int percentOfComparedTuplePairs = 0;
         long numComparedTuplePairs = 0;
-        FdTree negativeCover = new FdTree(relationSchema.getNumColumns());
+        FdTree negativeCover = new FdTree(relationSchema.getNumColumns() + 1); // +1: We add an artificial key attribute.
         for (int i = 0; i < relation.size(); i++) {
             List<String> t1 = relation.get(i);
             for (int j = i + 1; j < relation.size(); j++) {
                 List<String> t2 = relation.get(j);
 
                 BitSet agreeSet = new BitSet(t1.size());
-                BitSet diffSet = new BitSet(t1.size());
+                BitSet diffSet = new BitSet(t1.size() + 1);
                 for (int k = 0; k < t1.size(); k++) {
                     if (Objects.equals(t1.get(k), t2.get(k))) agreeSet.set(k);
-                    else diffSet.set(k);
+                    else if (this.configuration.isFindFds) diffSet.set(k);
                 }
+                if (this.configuration.isFindKeys) diffSet.set(relationSchema.getNumColumns()); // The artificial key attribute...
                 negativeCover.add(agreeSet, diffSet);
 
                 if (++numComparedTuplePairs >= onePercentOfAllTuplePairs) {
@@ -107,10 +116,10 @@ public class FdepX
         // ---------------------------------------------------------------------------------------------------------- //
         // Trim the negative cover.
         // ---------------------------------------------------------------------------------------------------------- //
-        if (this.configuration.maxFdError > 0.0) {
+        if (maxError > 0.0) {
             System.out.println("Trimming the negative cover...");
             long numTuplePairs = relation.size() * (relation.size() - 1L) / 2;
-            long maxViolations = (long) (this.configuration.maxFdError * numTuplePairs);
+            long maxViolations = (long) (maxError * numTuplePairs);
             negativeCover = negativeCover.prune(maxViolations);
         }
 
@@ -119,10 +128,15 @@ public class FdepX
         // ---------------------------------------------------------------------------------------------------------- //
         System.out.println("Inducing the positive cover...");
         // Create the positive cover.
-        FdTree positiveCover = new FdTree(relationSchema.getNumColumns());
+        FdTree positiveCover = new FdTree(relationSchema.getNumColumns() + 1);
         // Handle the RHS individually.
         BitSet rhsBitSet = new BitSet(relationSchema.getNumColumns());
-        for (int rhs = 0; rhs < relationSchema.getNumColumns(); rhs++) {
+        for (int rhs = 0; rhs < relationSchema.getNumColumns() + 1; rhs++) {
+            // Determine whether the RHS is a normal attribute or the artificial key.
+            boolean isFdRhs = rhs < relationSchema.getNumColumns();
+            if (isFdRhs && !this.configuration.isFindFds ||
+                    !isFdRhs && !this.configuration.isFindKeys) continue;
+
             rhsBitSet.set(rhs);
             // Add the most general FD as initial hypothesis.
             positiveCover.add(new BitSet(0), rhsBitSet);
@@ -147,7 +161,12 @@ public class FdepX
             rhsBitSet.clear(rhs);
             // Output all the FDs for the RHS.
             for (BitSet lhs : positiveCover.getAllLhs(rhs)) {
-                this.registerFd(relationSchema.getVertical(lhs), relationSchema.getColumn(rhs), Double.NaN, Double.NaN);
+                if (isFdRhs) {
+                    this.registerFd(relationSchema.getVertical(lhs), relationSchema.getColumn(rhs), Double.NaN, Double.NaN);
+                } else {
+                    // If the RHS is the artifical key attribute, then we can interpret the LHS as keys.
+                    this.registerUcc(relationSchema.getVertical(lhs), Double.NaN, Double.NaN);
+                }
             }
         }
     }
