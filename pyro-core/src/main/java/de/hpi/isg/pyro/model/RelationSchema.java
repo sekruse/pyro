@@ -1,14 +1,12 @@
 package de.hpi.isg.pyro.model;
 
 import de.hpi.isg.pyro.util.BitSets;
-import de.hpi.isg.pyro.util.PositionListIndex;
 import de.hpi.isg.pyro.util.VerticalMap;
 import de.metanome.algorithm_integration.ColumnCombination;
 import de.metanome.algorithm_integration.ColumnIdentifier;
 
 import java.io.Serializable;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
 /**
@@ -26,7 +24,7 @@ public class RelationSchema implements Serializable {
 
     public final Vertical emptyVertical = Vertical.emptyVertical(this);
 
-    protected RelationSchema(String name, boolean isNullEqualNull) {
+    public RelationSchema(String name, boolean isNullEqualNull) {
         this.name = name;
         this.columns = new ArrayList<>();
         this.isNullEqualNull = isNullEqualNull;
@@ -107,6 +105,14 @@ public class RelationSchema implements Serializable {
             }
         }
         return null;
+    }
+
+    /**
+     * Append a {@link de.hpi.isg.mdms.model.targets.Column} to this instance.
+     * @param name the name of the new {@link de.hpi.isg.mdms.model.targets.Column}
+     */
+    public void appendColumn(String name) {
+        this.columns.add(new Column(this, name, this.columns.size()));
     }
 
     public Column getColumn(int index) {
