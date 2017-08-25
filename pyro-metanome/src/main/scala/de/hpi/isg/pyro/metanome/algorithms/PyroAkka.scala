@@ -5,7 +5,7 @@ import java.util
 
 import de.hpi.isg.mdms.clients.MetacrateClient
 import de.hpi.isg.mdms.model.MetadataStore
-import de.hpi.isg.pyro.akka.PyroOnAkka.{OutputMethod, RelationalInputGeneratorInputMethod}
+import de.hpi.isg.pyro.akka.algorithms.Pyro.{OutputMethod, RelationalInputGeneratorInputMethod}
 import de.hpi.isg.pyro.akka.algorithms.Pyro
 import de.hpi.isg.pyro.core.Configuration
 import de.hpi.isg.pyro.model.{PartialFD, PartialKey}
@@ -101,7 +101,7 @@ class PyroAkka extends MetacrateClient
   @throws(classOf[AlgorithmExecutionException])
   override def execute(): Unit = {
     try {
-      Pyro(
+      Pyro.profile(
         input = RelationalInputGeneratorInputMethod(this.inputGenerator),
         output = OutputMethod(
           fdConsumer = Some((fd: PartialFD) => this.fdResultReceiver.receiveResult(fd.toMetanomeFunctionalDependency)),
