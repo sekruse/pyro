@@ -39,12 +39,12 @@ public abstract class GraphTraverser {
     /**
      * Keeps track of the non-dependencies.
      */
-    protected final PruningGraph negativeGraph;
+    protected final Cover negativeGraph;
 
     /**
      * Keeps track of the dependencies.
      */
-    protected final PruningGraph positiveGraph;
+    protected final Cover positiveGraph;
 
     /**
      * The minimal dependencies.
@@ -69,7 +69,7 @@ public abstract class GraphTraverser {
     /**
      * Provides randomness for the random walk.
      */
-    protected final Random random = new Random();
+    protected final Random random = new Random(42);
 
     /**
      * The number of discovered dependencies.
@@ -87,7 +87,7 @@ public abstract class GraphTraverser {
      * @param schema                        which should be traversed
      * @param pliRepository                 provides {@link PositionListIndex}es
      * @param minimumDependencyConsumer
-     * @param pruningGraphPartitionCapacity see {@link PruningGraph#partitionCapacity}
+     * @param pruningGraphPartitionCapacity see {@link Cover#partitionCapacity}
      * @param prunedColumns                 that should not be traversed
      */
     protected GraphTraverser(RelationSchema schema,
@@ -98,8 +98,8 @@ public abstract class GraphTraverser {
         this.pliRepository = pliRepository;
         this.minimumDependencyConsumer = minimumDependencyConsumer;
         this.prunedColumns = prunedColumns;
-        this.positiveGraph = new PruningGraph(this.schema, PruningGraph.CoverType.SUBSETS, pruningGraphPartitionCapacity);
-        this.negativeGraph = new PruningGraph(this.schema, PruningGraph.CoverType.SUPERSETS, pruningGraphPartitionCapacity);
+        this.positiveGraph = new SubsetCover(this.schema, pruningGraphPartitionCapacity);
+        this.negativeGraph = new SupersetCover(this.schema, pruningGraphPartitionCapacity);
         this.holeFinder = new HoleFinder(this.schema, prunedColumns);
         this.seeds = new ArrayList<>(Arrays.asList(this.prunedColumns.invert().getColumns()));
     }
@@ -146,8 +146,8 @@ public abstract class GraphTraverser {
                         if (pathElement.error <= this.getErrorThreshold()) {
                             Vertical coverElement = this.positiveGraph.getCoverElement(pathElement.vertical);
                             assert coverElement != null : String.format(
-                                    "%s is an already visited dependency, but is not covered in the positive graph.",
-                                    pathElement.vertical
+                                    "%s is an already visited dependency, but is not covered by %s.",
+                                    pathElement.vertical, this.positiveGraph
                             );
                             if (coverElement.equals(pathElement.vertical)) {
                                 this.found++;
@@ -156,6 +156,10 @@ public abstract class GraphTraverser {
                             }
                         } else {
                             Vertical coverElement = this.negativeGraph.getCoverElement(pathElement.vertical);
+                            assert coverElement != null : String.format(
+                                    "%s is an already visited non-dependency, but is not covered by %s.",
+                                    pathElement.vertical, this.negativeGraph
+                            );
                             if (coverElement.equals(pathElement.vertical)) {
                                 this.maximalNegatives.add(coverElement);
                                 this.holeFinder.updateMaximalNonDependency(coverElement);

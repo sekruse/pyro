@@ -33,7 +33,7 @@ public class UccGraphTraverser extends GraphTraverser {
      * @param schema                        which should be traversed
      * @param pliRepository                 provides {@link PositionListIndex}es
      * @param prunedColumns                 that should not be traversed
-     * @param pruningGraphPartitionCapacity see {@link PruningGraph#partitionCapacity}
+     * @param pruningGraphPartitionCapacity see {@link Cover#partitionCapacity}
      * @param maxError                      maximum error for candidates to classify as (partial) UCCs
      * @param numTuplePairs                 the number of tuple pairs in the relation
      */
