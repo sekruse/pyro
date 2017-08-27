@@ -17,6 +17,7 @@ import de.hpi.isg.pyro.model.ColumnLayoutRelationData;
 import de.hpi.isg.pyro.model.Vertical;
 import de.hpi.isg.pyro.properties.MetanomeProperty;
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger;
+import de.hpi.isg.pyro.util.PositionListIndex;
 import de.metanome.algorithm_integration.AlgorithmConfigurationException;
 import de.metanome.algorithm_integration.AlgorithmExecutionException;
 import de.metanome.algorithm_integration.algorithm_types.*;
@@ -98,6 +99,14 @@ public class ADuccDfd
         if (this.configuration.isFindKeys) {
             for (Column rhs : relation.getSchema().getColumns()) {
                 System.out.printf("Searching for FDs with %s as RHS...\n", rhs);
+
+                // Check for 0-ary FDs.
+                PositionListIndex rhsPli = pliRepository.get(rhs);
+                double zeroaryFdError = 1 - rhsPli.getNep() / relation.getNumTuplePairs();
+                if (zeroaryFdError <= this.configuration.maxFdError) {
+                    this.registerFd(relation.getSchema().emptyVertical, rhs, zeroaryFdError, Double.NaN);
+                    continue;
+                }
 
                 // Run the actual algorithm.
                 FdGraphTraverser fdGraphTraverser = new FdGraphTraverser(
