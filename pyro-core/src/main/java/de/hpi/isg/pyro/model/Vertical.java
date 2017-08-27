@@ -1,6 +1,5 @@
 package de.hpi.isg.pyro.model;
 
-import de.hpi.isg.pyro.util.PositionListIndex;
 import de.metanome.algorithm_integration.ColumnIdentifier;
 
 import java.io.Serializable;
@@ -23,7 +22,8 @@ public interface Vertical extends Serializable {
     /**
      * Check whether all {@link Column}s of the given instance are also found in this instance.
      *
-     * @return the other instance
+     * @param that the other instance
+     * @return whether this instance contains {@code that} instance
      */
     default boolean contains(Vertical that) {
         BitSet thisIndices = this.getColumnIndices();
@@ -35,6 +35,18 @@ public interface Vertical extends Serializable {
             if (!thisIndices.get(columnIndex)) return false;
         }
         return true;
+    }
+
+    /**
+     * Check whether some {@link Column}s of the given instance are also found in this instance.
+     *
+     * @param that the other instance
+     * @return whether the instances intersect
+     */
+    default boolean intersects(Vertical that) {
+        BitSet thisIndices = this.getColumnIndices();
+        BitSet thatIndices = that.getColumnIndices();
+        return thisIndices.intersects(thatIndices);
     }
 
     /**
@@ -70,6 +82,18 @@ public interface Vertical extends Serializable {
     default Vertical without(Vertical that) {
         BitSet retainedColumnIndices = (BitSet) this.getColumnIndices().clone();
         retainedColumnIndices.andNot(that.getColumnIndices());
+        return this.getSchema().getVertical(retainedColumnIndices);
+    }
+
+    /**
+     * Create a new instance that contains all {@link Column}s from this instance <b>and</b> those in {@code that} instance.
+     *
+     * @param that the {@link Column}s to intersect with
+     * @return the new instance
+     */
+    default Vertical intersect(Vertical that) {
+        BitSet retainedColumnIndices = (BitSet) this.getColumnIndices().clone();
+        retainedColumnIndices.and(that.getColumnIndices());
         return this.getSchema().getVertical(retainedColumnIndices);
     }
 
@@ -134,6 +158,23 @@ public interface Vertical extends Serializable {
             columns[i] = relation.getColumns().get(index);
         }
         return columns;
+    }
+
+    /**
+     * Return the {@code n}th {@link Column} in this instance.
+     *
+     * @param n the index of the {@link Column}
+     * @return the {@link Column}
+     */
+    default Vertical getColumn(int n) {
+        if (this.getArity() <= n) throw new IndexOutOfBoundsException();
+        int columnIndex = -1;
+        BitSet columnIndices = this.getColumnIndices();
+        for (int i = 0; i < n; i++) {
+            columnIndex = columnIndices.nextSetBit(columnIndex + 1);
+            if (columnIndex == -1) throw new IndexOutOfBoundsException();
+        }
+        return this.getSchema().getColumn(columnIndex);
     }
 
     default Vertical[] getParents() {
