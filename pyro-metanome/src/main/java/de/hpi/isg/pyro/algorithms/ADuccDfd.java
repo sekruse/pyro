@@ -24,6 +24,7 @@ import de.metanome.algorithm_integration.algorithm_types.*;
 import de.metanome.algorithm_integration.configuration.ConfigurationRequirement;
 import de.metanome.algorithm_integration.configuration.ConfigurationRequirementFileInput;
 import de.metanome.algorithm_integration.input.FileInputGenerator;
+import de.metanome.algorithm_integration.input.RelationalInputGenerator;
 import de.metanome.algorithm_integration.result_receiver.ColumnNameMismatchException;
 import de.metanome.algorithm_integration.result_receiver.CouldNotReceiveResultException;
 import de.metanome.algorithm_integration.result_receiver.FunctionalDependencyResultReceiver;
@@ -41,12 +42,12 @@ import java.util.Date;
 public class ADuccDfd
         extends DependencyConsumer
         implements FunctionalDependencyAlgorithm, UniqueColumnCombinationsAlgorithm,
-        StringParameterAlgorithm, IntegerParameterAlgorithm, FileInputParameterAlgorithm, BooleanParameterAlgorithm,
+        StringParameterAlgorithm, IntegerParameterAlgorithm, RelationalInputParameterAlgorithm, BooleanParameterAlgorithm,
         MetacrateClient {
 
     public static final String INPUT_FILE_CONFIG_KEY = "inputFile";
 
-    private FileInputGenerator fileInputGenerator;
+    private RelationalInputGenerator fileInputGenerator;
 
     private MetanomePropertyLedger propertyLedger;
     private final ADuccDfd.Configuration configuration = new ADuccDfd.Configuration();
@@ -239,13 +240,15 @@ public class ADuccDfd
         throw new AlgorithmConfigurationException(String.format("Unknown Boolean parameter: \"%s\"", identifier));
     }
 
+
     @Override
-    public void setFileInputConfigurationValue(String identifier,
-                                               FileInputGenerator... values)
+    public void setRelationalInputConfigurationValue(String identifier, RelationalInputGenerator... values)
             throws AlgorithmConfigurationException {
         switch (identifier) {
             case INPUT_FILE_CONFIG_KEY:
-                if (values.length != 1) throw new AlgorithmConfigurationException("Only one input file supported.");
+                if (values.length != 1) throw new AlgorithmConfigurationException(
+                        String.format("Only one input file supported (%d given).", values.length)
+                );
                 this.fileInputGenerator = values[0];
                 break;
             default:

@@ -17,8 +17,8 @@ import de.metanome.algorithm_integration.AlgorithmExecutionException;
 import de.metanome.algorithm_integration.algorithm_types.*;
 import de.metanome.algorithm_integration.configuration.ConfigurationRequirement;
 import de.metanome.algorithm_integration.configuration.ConfigurationRequirementFileInput;
-import de.metanome.algorithm_integration.input.FileInputGenerator;
 import de.metanome.algorithm_integration.input.RelationalInput;
+import de.metanome.algorithm_integration.input.RelationalInputGenerator;
 import de.metanome.algorithm_integration.result_receiver.ColumnNameMismatchException;
 import de.metanome.algorithm_integration.result_receiver.CouldNotReceiveResultException;
 import de.metanome.algorithm_integration.result_receiver.FunctionalDependencyResultReceiver;
@@ -38,12 +38,12 @@ import java.util.*;
 public class FdepX
         extends DependencyConsumer
         implements FunctionalDependencyAlgorithm, UniqueColumnCombinationsAlgorithm,
-        StringParameterAlgorithm, IntegerParameterAlgorithm, FileInputParameterAlgorithm, BooleanParameterAlgorithm,
+        StringParameterAlgorithm, IntegerParameterAlgorithm, RelationalInputParameterAlgorithm, BooleanParameterAlgorithm,
         MetacrateClient {
 
     public static final String INPUT_FILE_CONFIG_KEY = "inputFile";
 
-    private FileInputGenerator fileInputGenerator;
+    private RelationalInputGenerator inputGenerator;
 
     private MetanomePropertyLedger propertyLedger;
     private final TaneX.Configuration configuration = new TaneX.Configuration();
@@ -67,7 +67,7 @@ public class FdepX
         ArrayList<List<String>> relation = new ArrayList<>();
         RelationSchema relationSchema;
         try {
-            try (RelationalInput relationalInput = this.fileInputGenerator.generateNewCopy()) {
+            try (RelationalInput relationalInput = this.inputGenerator.generateNewCopy()) {
                 relationSchema = new RelationSchema(relationalInput.relationName(), this.configuration.isNullEqualNull);
                 for (String columnName : relationalInput.columnNames()) {
                     relationSchema.appendColumn(columnName);
@@ -87,7 +87,9 @@ public class FdepX
         // ---------------------------------------------------------------------------------------------------------- //
         // Build the negative cover.
         // ---------------------------------------------------------------------------------------------------------- //
-        long onePercentOfAllTuplePairs = relation.size() * (relation.size() - 1L) / 2 / 100;
+        long numAllTuplePairs = relation.size() * (relation.size() - 1L) / 2;
+        long startMillis = System.currentTimeMillis();
+        long nextUpdateMillis = startMillis + 1000L;
         int percentOfComparedTuplePairs = 0;
         long numComparedTuplePairs = 0;
         FdTree negativeCover = new FdTree(relationSchema.getNumColumns() + 1); // +1: We add an artificial key attribute.
@@ -102,12 +104,26 @@ public class FdepX
                     if (Objects.equals(t1.get(k), t2.get(k))) agreeSet.set(k);
                     else if (this.configuration.isFindFds) diffSet.set(k);
                 }
-                if (this.configuration.isFindKeys) diffSet.set(relationSchema.getNumColumns()); // The artificial key attribute...
+                if (this.configuration.isFindKeys)
+                    diffSet.set(relationSchema.getNumColumns()); // The artificial key attribute...
                 negativeCover.add(agreeSet, diffSet);
 
-                if (++numComparedTuplePairs >= onePercentOfAllTuplePairs) {
-                    System.out.printf("\rCompared tuple pairs: %3d%%...", ++percentOfComparedTuplePairs);
-                    numComparedTuplePairs = 0L;
+                // Output current status.
+                numComparedTuplePairs++;
+                long currentMillis = System.currentTimeMillis();
+                if (currentMillis >= nextUpdateMillis) {
+                    long elapsedMillis = Math.max(currentMillis - startMillis, 1L);
+                    double tuplesPerMilli = numComparedTuplePairs / elapsedMillis;
+                    long numRemainingTuples = numAllTuplePairs - numComparedTuplePairs;
+                    long remainingMillis = (long) (numRemainingTuples / tuplesPerMilli);
+
+                    percentOfComparedTuplePairs = (int) (numComparedTuplePairs * 100 / numAllTuplePairs);
+                    System.out.printf(
+                            "\rCompared tuple pairs: %3d%% (remaining time: ~%-30s",
+                            percentOfComparedTuplePairs,
+                            formatDuration(remainingMillis) + ")..."
+                    );
+                    nextUpdateMillis = currentMillis + 5000L;
                 }
             }
         }
@@ -170,6 +186,23 @@ public class FdepX
                 }
             }
         }
+    }
+
+    /**
+     * Format the given milliseconds as {@code h:mm:ss.mmm}.
+     *
+     * @param millis milliseconds
+     * @return the formatted {@link String}
+     */
+    private static String formatDuration(long millis) {
+        long ms = millis % 1000;
+        millis /= 1000;
+        long s = millis % 60;
+        millis /= 60;
+        long min = millis % 60;
+        millis /= 60;
+        long h = millis;
+        return String.format("%d:%02d:%02d.%03d", h, min, s, ms);
     }
 
     @Override
@@ -287,13 +320,12 @@ public class FdepX
     }
 
     @Override
-    public void setFileInputConfigurationValue(String identifier,
-                                               FileInputGenerator... values)
+    public void setRelationalInputConfigurationValue(String identifier, RelationalInputGenerator... values)
             throws AlgorithmConfigurationException {
         switch (identifier) {
             case INPUT_FILE_CONFIG_KEY:
                 if (values.length != 1) throw new AlgorithmConfigurationException("Only one input file supported.");
-                this.fileInputGenerator = values[0];
+                this.inputGenerator = values[0];
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported argument.");
