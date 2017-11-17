@@ -332,18 +332,19 @@ public class SearchSpace implements Serializable {
                 error = traversalCandidate.error.get();
 
                 // Store the candidate's state.
+                boolean canBeDependency = error <= strategy.maxDependencyError;
                 localVisitees.put(traversalCandidate.vertical, new VerticalInfo(
-                        error <= strategy.maxError,
+                        canBeDependency,
                         false,
                         error
                 ));
 
                 // Check whether to stop the ascension.
-                if (error <= strategy.maxError) break;
+                if (canBeDependency) break;
 
             } else { // We have no exact sample.
                 // Are we confident that this is _not_ a dependency?
-                if (traversalCandidate.error.getMin() > strategy.maxError) {
+                if (traversalCandidate.error.getMin() > strategy.maxDependencyError) {
                     // If we are confident that we do not have a key, than we skip the check.
                     if (logger.isTraceEnabled()) logger.trace("   Skipping check for {} (estimated error: {}).",
                             strategy.format(traversalCandidate.vertical),
@@ -357,13 +358,13 @@ public class SearchSpace implements Serializable {
 
                     // Store the candidate's state.
                     localVisitees.put(traversalCandidate.vertical, new VerticalInfo(
-                            error <= strategy.maxError,
+                            error <= strategy.maxDependencyError,
                             false,
                             error
                     ));
 
                     // Check whether to stop the ascension.
-                    if (error <= strategy.maxError) break;
+                    if (error <= strategy.maxDependencyError) break;
 
                     // Potentially create a new agree set sample.
                     if (strategy.shouldResample(traversalCandidate.vertical, sampleBoost)) {
@@ -429,7 +430,7 @@ public class SearchSpace implements Serializable {
         _profilingData.ascendMillis.addAndGet(System.currentTimeMillis() - _startMillis);
         _profilingData.numAscends.incrementAndGet();
 
-        if (error <= strategy.maxError) {
+        if (error <= strategy.maxDependencyError) {
             // If we reached a desired key, then we need to minimize it now.
             if (logger.isTraceEnabled())
                 logger.trace("   Key peak in climbing phase: e({})={} -> Need to minimize.", traversalCandidate.vertical, error);
@@ -554,7 +555,7 @@ public class SearchSpace implements Serializable {
                     if (escapedPeakVertical.getArity() > 0 && !allegedNonDeps.contains(escapedPeakVertical)) {
                         DependencyCandidate escapedPeak = strategy.createDependencyCandidate(escapedPeakVertical);
 
-                        if (escapedPeak.error.getMean() > strategy.maxError) {
+                        if (escapedPeak.error.getMean() > strategy.minNonDependencyError) {
                             allegedNonDeps.add(escapedPeak.vertical);
                             continue;
                         }
@@ -627,7 +628,7 @@ public class SearchSpace implements Serializable {
 
             // Check and evaluate the candidate.
             double error = strategy.calculateError(allegedMaxNonDep);
-            boolean isNonDep = error > strategy.maxError;
+            boolean isNonDep = error > strategy.minNonDependencyError;
             if (logger.isTraceEnabled())
                 logger.trace("* Alleged maximal non-dependency {}: non-dep?: {}, error: {}",
                         strategy.format(allegedMaxNonDep), isNonDep, error);
@@ -734,7 +735,7 @@ public class SearchSpace implements Serializable {
                                      VerticalMap<VerticalInfo> localVisitees,
                                      VerticalMap<VerticalInfo> globalVisitees,
                                      double boostFactor) {
-        assert minDepCandidate.error.getMin() <= strategy.maxError;
+        assert minDepCandidate.error.getMin() <= strategy.maxDependencyError;
 
         // Enumerate the parents of our candidate to check if any of them might be a dependency.
         boolean areAllParentsKnownNonDeps = true;
@@ -761,7 +762,7 @@ public class SearchSpace implements Serializable {
                 DependencyCandidate parentCandidate = parentCandidates.poll();
                 // We can stop as soon as the unchecked parent candidate with the least error is not deemed to be a dependency.
                 // Additionally, we distinguish whether the parents are known non-dependencies or we just deem them so.
-                if (parentCandidate.error.getMin() > strategy.maxError) {
+                if (parentCandidate.error.getMin() > strategy.minNonDependencyError) {
                     // Additionally, we mark all remaining candidates as alleged non-dependencies to avoid revisits.
                     do {
                         if (parentCandidate.isExact()) {
@@ -795,7 +796,7 @@ public class SearchSpace implements Serializable {
                     // because we just falsified a parent.
                     double error = strategy.calculateError(minDepCandidate.vertical);
                     minDepCandidate = new DependencyCandidate(minDepCandidate.vertical, new ConfidenceInterval(error, error), true);
-                    if (error > strategy.maxError) break;
+                    if (error > strategy.minNonDependencyError) break;
                 }
             }
         }
@@ -805,7 +806,7 @@ public class SearchSpace implements Serializable {
         double candidateError = minDepCandidate.isExact() ?
                 minDepCandidate.error.get() :
                 strategy.calculateError(minDepCandidate.vertical);
-        if (candidateError <= strategy.maxError) {
+        if (candidateError <= strategy.maxDependencyError) {
             // TODO: I think, we don't need to add the dep to the localVisitees, because we won't visit it anymore.
             if (logger.isTraceEnabled())
                 logger.trace("* Found {}-ary minimum dependency candidate: {}", minDepCandidate.vertical.getArity(), minDepCandidate);
@@ -839,7 +840,7 @@ public class SearchSpace implements Serializable {
      */
     private static void requireMinimalDependency(DependencyStrategy strategy, Vertical minDependency) {
         double error = strategy.calculateError(minDependency);
-        if (error > strategy.maxError) {
+        if (error > strategy.maxDependencyError) {
             throw new AssertionError(String.format("%s should be a minimal dependency but has an error of %f.",
                     strategy.format(minDependency), error
             ));
@@ -847,7 +848,7 @@ public class SearchSpace implements Serializable {
         if (minDependency.getArity() > 1) {
             for (Vertical parent : minDependency.getParents()) {
                 double parentError = strategy.calculateError(parent);
-                if (parentError <= strategy.maxError) {
+                if (parentError <= strategy.minNonDependencyError) {
                     throw new AssertionError(String.format("%s should be a minimal dependency but %s has an error of %f.",
                             strategy.format(minDependency), strategy.format(parent), error
                     ));

@@ -12,8 +12,8 @@ import de.hpi.isg.pyro.util.PositionListIndex;
  */
 public class KeyG1Strategy extends DependencyStrategy {
 
-    public KeyG1Strategy(double maxError) {
-        super(maxError);
+    public KeyG1Strategy(double maxError, double deviation) {
+        super(maxError, deviation);
     }
 
     @Override
@@ -105,6 +105,6 @@ public class KeyG1Strategy extends DependencyStrategy {
 
     @Override
     public String toString() {
-        return String.format("Key[g1\u2264%.3f]", this.maxError);
+        return String.format("Key[g1\u2264(%.3f..%.3f)]", this.minNonDependencyError, this.maxDependencyError);
     }
 }

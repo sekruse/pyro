@@ -21,8 +21,8 @@ public class FdG1Strategy extends DependencyStrategy {
 
     private final Column rhs;
 
-    public FdG1Strategy(Column rhs, double maxError) {
-        super(maxError);
+    public FdG1Strategy(Column rhs, double maxError, double deviation) {
+        super(maxError, deviation);
         this.rhs = rhs;
     }
 
@@ -151,6 +151,6 @@ public class FdG1Strategy extends DependencyStrategy {
 
     @Override
     public String toString() {
-        return String.format("FD[RHS=%s, g1\u2264%.3f]", this.rhs.getName(), this.maxError);
+        return String.format("FD[RHS=%s, g1\u2264(%.3f..%.3f)]", this.rhs.getName(), this.minNonDependencyError, this.maxDependencyError);
     }
 }

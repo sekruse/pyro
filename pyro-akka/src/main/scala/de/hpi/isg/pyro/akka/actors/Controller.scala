@@ -192,7 +192,10 @@ class Controller(configuration: Configuration,
     if (configuration.isFindKeys) {
       configuration.uccErrorMeasure match {
         case "g1prime" =>
-          val strategy = new KeyG1Strategy(configuration.maxUccError)
+          val strategy = new KeyG1Strategy(
+            configuration.maxUccError - configuration.errorDev,
+            configuration.maxUccError + configuration.errorDev
+          )
           scheduler.registerSearchSpace(new SearchSpace(nextId(), strategy, schema))
         case other => sys.error(s"Unsupported error measure ($other).")
       }
@@ -203,7 +206,11 @@ class Controller(configuration: Configuration,
       schema.getColumns foreach { column =>
         configuration.fdErrorMeasure match {
           case "g1prime" =>
-            val strategy = new FdG1Strategy(column, configuration.maxFdError)
+            val strategy = new FdG1Strategy(
+              column,
+              configuration.maxUccError - configuration.errorDev,
+              configuration.maxUccError + configuration.errorDev
+            )
             scheduler.registerSearchSpace(new SearchSpace(nextId(), strategy, schema))
         }
       }

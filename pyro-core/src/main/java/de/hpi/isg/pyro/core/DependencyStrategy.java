@@ -16,7 +16,12 @@ abstract public class DependencyStrategy implements Serializable {
     /**
      * The maximum error permitted for dependencies.
      */
-    final double maxError;
+    final double maxDependencyError;
+
+    /**
+     * The maximum error permitted for dependencies.
+     */
+    final double minNonDependencyError;
 
     /**
      * The {@link ProfilingContext} on which this instance operates.
@@ -28,8 +33,9 @@ abstract public class DependencyStrategy implements Serializable {
      *
      * @param maxError the maximum permitted error for dependencies
      */
-    protected DependencyStrategy(double maxError) {
-        this.maxError = maxError;
+    protected DependencyStrategy(double maxError, double deviation) {
+        this.maxDependencyError = maxError + deviation;
+        this.minNonDependencyError = maxError - deviation;
     }
 
     /**

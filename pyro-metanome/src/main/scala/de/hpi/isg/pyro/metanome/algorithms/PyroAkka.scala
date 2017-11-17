@@ -77,13 +77,13 @@ class PyroAkka extends MetacrateClient
   override def setResultReceiver(resultReceiver: UniqueColumnCombinationResultReceiver): Unit = uccResultReceiver = resultReceiver
 
   override def setIntegerConfigurationValue(identifier: String, values: Integer*): Unit =
-    propertyLedger.configure(configuration, identifier, values)
+    propertyLedger.configure(configuration, identifier, values: _*)
 
   override def setStringConfigurationValue(identifier: String, values: String*): Unit =
-    propertyLedger.configure(configuration, identifier, values)
+    propertyLedger.configure(configuration, identifier, values: _*)
 
   override def setBooleanConfigurationValue(identifier: String, values: Boolean*): Unit =
-    propertyLedger.configure(configuration, identifier, values)
+    propertyLedger.configure(configuration, identifier, values: _*)
 
   override def setRelationalInputConfigurationValue(identifier: String, values: RelationalInputGenerator*): Unit = {
     require(values.size == 1, s"Exactly one relational input required, but found ${values.size}.")
