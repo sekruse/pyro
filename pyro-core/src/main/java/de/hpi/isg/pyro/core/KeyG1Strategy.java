@@ -34,8 +34,12 @@ public class KeyG1Strategy extends DependencyStrategy {
 
     @Override
     double calculateError(Vertical keyCandidate) {
+        final long startNanos = System.nanoTime();
         PositionListIndex pli = this.context.pliCache.getOrCreateFor(keyCandidate);
-        return this.calculateKeyError(pli);
+        double error = this.calculateKeyError(pli);
+        this.context.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
+        this.context.profilingData.numErrorCalculations.incrementAndGet();
+        return error;
     }
 
     private double calculateKeyError(PositionListIndex pli) {
@@ -59,8 +63,11 @@ public class KeyG1Strategy extends DependencyStrategy {
     DependencyCandidate createDependencyCandidate(Vertical vertical) {
         // If we have columns, there is no need to estimate.
         if (vertical.getArity() == 1) {
+            final long startNanos = System.nanoTime();
             PositionListIndex pli = this.context.pliCache.getOrCreateFor(vertical);
             double keyError = this.calculateKeyError((long) pli.getNep());
+            this.context.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
+            this.context.profilingData.numErrorCalculations.incrementAndGet();
             return new DependencyCandidate(vertical, new ConfidenceInterval(keyError, keyError), true);
         }
 
@@ -69,11 +76,14 @@ public class KeyG1Strategy extends DependencyStrategy {
         }
 
         // Find the best available correlation provider.
+        final long startNanos = System.nanoTime();
         AgreeSetSample agreeSetSample = this.context.getAgreeSetSample(vertical);
         ConfidenceInterval estimatedEqualityPairs = agreeSetSample
                 .estimateAgreements(vertical, this.context.configuration.estimateConfidence)
                 .multiply(this.context.relationData.getNumTuplePairs());
         ConfidenceInterval keyError = this.calculateKeyError(estimatedEqualityPairs);
+        this.context.profilingData.errorEstimationNanos.addAndGet(System.nanoTime() - startNanos);
+        this.context.profilingData.numErrorEstimations.incrementAndGet();
         return new DependencyCandidate(vertical, keyError, false);
     }
 
@@ -85,6 +95,8 @@ public class KeyG1Strategy extends DependencyStrategy {
     @Override
     void registerDependency(Vertical vertical, double error, DependencyConsumer discoveryUnit) {
         // TODO: Calculate score.
+        this.context.profilingData.numDependencies.incrementAndGet();
+        this.context.profilingData.dependencyArity.addAndGet(vertical.getArity());
         discoveryUnit.registerUcc(vertical, error, Double.NaN);
     }
 

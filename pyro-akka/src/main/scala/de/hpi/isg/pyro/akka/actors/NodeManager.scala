@@ -91,6 +91,7 @@ class NodeManager(controller: ActorRef,
       log.debug(s"Asked to initialize profiling context.")
 
       // Obtain the relation.
+      val startMillis = System.currentTimeMillis
       val relation = input match {
         case RelationalInputGeneratorInputMethod(inputGenerator) =>
           log.info(s"Loading relation from $inputGenerator...")
@@ -122,9 +123,11 @@ class NodeManager(controller: ActorRef,
         case other =>
           sys.error(s"Unsupported input method ($other).")
       }
+      val loadRelationMillis = System.currentTimeMillis - startMillis
 
       // Do further initializations.
       createProfilingContext(relation)
+      profilingContext.profilingData.initializationMillis.addAndGet(loadRelationMillis)
       createWorkers()
 
       // Pass the controller the schema.

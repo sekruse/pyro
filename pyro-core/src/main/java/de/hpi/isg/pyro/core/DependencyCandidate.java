@@ -41,6 +41,29 @@ public class DependencyCandidate implements Comparable<DependencyCandidate>, Ser
         return Integer.compare(tc1.vertical.getArity(), tc2.vertical.getArity());
     };
 
+    public static Comparator<DependencyCandidate> fullErrorArityComparator = DependencyCandidate::compareTo;
+
+    public static Comparator<DependencyCandidate> fullArityErrorComparator = (tc1, tc2) -> {
+        // Primarily order by the error.
+        int result = Double.compare(tc1.error.getMean(), tc2.error.getMean());
+        if (result != 0) return result;
+
+        // Use the arity to break ties.
+        result = Integer.compare(tc1.vertical.getArity(), tc2.vertical.getArity());
+        if (result != 0) return result;
+
+        // Finally, apply a lexicographical comparison to remove duplicates.
+        BitSet thisColumns = tc1.vertical.getColumnIndices();
+        BitSet thatColumns = tc2.vertical.getColumnIndices();
+        for (int a = thisColumns.nextSetBit(0), b = thatColumns.nextSetBit(0);
+             a != -1;
+             a = thisColumns.nextSetBit(a + 1), b = thatColumns.nextSetBit(b + 1)) {
+            if (a < b) return -1;
+            else if (a > b) return 1;
+        }
+        return 0;
+    };
+
     /**
      * The {@link Vertical} to visit represented by this instance.
      */

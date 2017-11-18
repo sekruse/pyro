@@ -32,7 +32,10 @@ public class FdG1Strategy extends DependencyStrategy {
         if (searchSpace.isInitialized) return;
 
         // We only add a candidate for the 0-ary FD []->RHS.
+        final long startNanos = System.nanoTime();
         double zeroFdError = this.calculateError(this.context.relationData.getSchema().emptyVertical);
+        this.context.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
+        this.context.profilingData.numErrorCalculations.incrementAndGet();
         searchSpace.addLaunchPad(new DependencyCandidate(
                 this.context.relationData.getSchema().emptyVertical,
                 new ConfidenceInterval(zeroFdError, zeroFdError),
@@ -44,15 +47,21 @@ public class FdG1Strategy extends DependencyStrategy {
 
     @Override
     double calculateError(Vertical fdCandidate) {
+        final long startNanos = System.nanoTime();
+        final double error;
         // Special case: Check 0-ary FD.
         if (fdCandidate.getArity() == 0) {
             PositionListIndex rhsPli = this.context.pliCache.get(this.rhs);
             assert rhsPli != null;
-            return this.calculateG1(rhsPli.getNip());
+            error = this.calculateG1(rhsPli.getNip());
+        } else {
+            PositionListIndex pli = this.context.pliCache.getOrCreateFor(fdCandidate);
+            error = this.calculateG1(pli);
         }
 
-        PositionListIndex pli = this.context.pliCache.getOrCreateFor(fdCandidate);
-        return this.calculateG1(pli);
+        this.context.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
+        this.context.profilingData.numErrorCalculations.incrementAndGet();
+        return error;
     }
 
     private double calculateG1(PositionListIndex lhsPli) {
@@ -114,12 +123,14 @@ public class FdG1Strategy extends DependencyStrategy {
         }
 
         // Find the best available correlation provider.
+        final long startNanos = System.nanoTime();
         AgreeSetSample agreeSetSample = this.context.getAgreeSetSample(vertical);
         ConfidenceInterval numViolatingTuplePairs = agreeSetSample
                 .estimateMixed(vertical, this.rhs, this.context.configuration.estimateConfidence)
                 .multiply(this.context.relationData.getNumTuplePairs());
-
         ConfidenceInterval g1 = this.calculateG1(numViolatingTuplePairs);
+        this.context.profilingData.errorEstimationNanos.addAndGet(System.nanoTime() - startNanos);
+        this.context.profilingData.numErrorEstimations.incrementAndGet();
         return new DependencyCandidate(vertical, g1, false);
     }
 
@@ -131,6 +142,8 @@ public class FdG1Strategy extends DependencyStrategy {
     @Override
     void registerDependency(Vertical vertical, double error, DependencyConsumer discoveryUnit) {
         // TODO: Calculate score.
+        this.context.profilingData.numDependencies.incrementAndGet();
+        this.context.profilingData.dependencyArity.addAndGet(vertical.getArity());
         discoveryUnit.registerFd(vertical, this.rhs, error, Double.NaN);
     }
 

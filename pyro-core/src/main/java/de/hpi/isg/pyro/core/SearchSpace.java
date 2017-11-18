@@ -15,7 +15,6 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
@@ -28,7 +27,7 @@ public class SearchSpace implements Serializable {
 
     private static Logger logger = LoggerFactory.getLogger(SearchSpace.class);
 
-    transient ProfilingContext context;
+    private transient ProfilingContext context;
 
     /**
      * Used to identify this instance.
@@ -44,7 +43,7 @@ public class SearchSpace implements Serializable {
 
     final VerticalMap<VerticalInfo> globalVisitees;
 
-    final SortedSet<DependencyCandidate> launchPads = new TreeSet<>();
+    final SortedSet<DependencyCandidate> launchPads;
 
     final VerticalMap<DependencyCandidate> launchPadIndex;
 
@@ -65,15 +64,13 @@ public class SearchSpace implements Serializable {
      */
     boolean isInitialized = false;
 
-    final ProfilingData _profilingData = new ProfilingData();
-
     /**
      * Create a new top-level instance.
      *
      * @param strategy defines the search within the new instance
      */
-    public SearchSpace(int id, DependencyStrategy strategy, RelationSchema schema) {
-        this(id, strategy, null, new SynchronizedVerticalMap<>(schema), schema, 0, 1d);
+    public SearchSpace(int id, DependencyStrategy strategy, RelationSchema schema, Comparator<? super DependencyCandidate> dependencyCandidateComparator) {
+        this(id, strategy, null, new SynchronizedVerticalMap<>(schema), schema, dependencyCandidateComparator, 0, 1d);
     }
 
     /**
@@ -84,6 +81,7 @@ public class SearchSpace implements Serializable {
     public SearchSpace(int id, DependencyStrategy strategy,
                        VerticalMap<Vertical> scope, VerticalMap<VerticalInfo> globalVisitees,
                        RelationSchema schema,
+                       Comparator<? super DependencyCandidate> dependencyCandidateComparator,
                        int recursionDepth, double sampleBoost) {
         this.id = id;
         this.strategy = strategy;
@@ -92,6 +90,7 @@ public class SearchSpace implements Serializable {
         this.recursionDepth = recursionDepth;
         this.sampleBoost = sampleBoost;
         this.launchPadIndex = new SynchronizedVerticalMap<>(schema);
+        this.launchPads = new TreeSet<>(dependencyCandidateComparator);
     }
 
     /**
@@ -117,7 +116,11 @@ public class SearchSpace implements Serializable {
      */
     private void discover(VerticalMap<VerticalInfo> localVisitees) {
         while (!this.interruptFlag) {
+            final long startMillis = System.currentTimeMillis();
             DependencyCandidate launchPad = this.pollLaunchPad(localVisitees);
+            if (localVisitees == null) {
+                this.context.profilingData.launchpadMillis.addAndGet(System.currentTimeMillis() - startMillis);
+            }
             if (launchPad == null) break;
 
             // Keep track of the visited dependency candidates to avoid duplicate visits and enable pruning.
@@ -253,7 +256,8 @@ public class SearchSpace implements Serializable {
                     }
 
                     return false;
-                }
+                },
+                this.context.profilingData
         );
 
         synchronized (this.launchPads) {
@@ -332,7 +336,7 @@ public class SearchSpace implements Serializable {
                 error = traversalCandidate.error.get();
 
                 // Store the candidate's state.
-                boolean canBeDependency = error <= strategy.maxDependencyError;
+                final boolean canBeDependency = error <= strategy.maxDependencyError;
                 localVisitees.put(traversalCandidate.vertical, new VerticalInfo(
                         canBeDependency,
                         false,
@@ -427,8 +431,9 @@ public class SearchSpace implements Serializable {
             if (logger.isTraceEnabled()) logger.trace("   Checking candidate... actual error: {}", error);
         }
 
-        _profilingData.ascendMillis.addAndGet(System.currentTimeMillis() - _startMillis);
-        _profilingData.numAscends.incrementAndGet();
+        this.context.profilingData.ascensionHeight.addAndGet(traversalCandidate.vertical.getArity() - launchPad.vertical.getArity());
+        this.context.profilingData.ascendMillis.addAndGet(System.currentTimeMillis() - _startMillis);
+        this.context.profilingData.numAscends.incrementAndGet();
 
         if (error <= strategy.maxDependencyError) {
             // If we reached a desired key, then we need to minimize it now.
@@ -545,7 +550,7 @@ public class SearchSpace implements Serializable {
 
                 // Do the escaping.
                 Collection<Vertical> escapedPeakVerticals =
-                        this.context.getSchema().calculateHittingSet(subsetDeps, null).stream()
+                        this.context.getSchema().calculateHittingSet(subsetDeps, null, this.context.profilingData).stream()
                                 .map(peak.vertical::without)
                                 .collect(Collectors.toList());
 
@@ -576,6 +581,8 @@ public class SearchSpace implements Serializable {
                 // If we could not find an alleged minimum dependency, that means that we do not believe that the
                 // peak itself is a dependency. Hence, we remove it.
                 peaks.poll();
+            } else {
+                this.context.profilingData.trickleDepth.addAndGet(mainPeak.getArity() - allegedMinDep.getArity());
             }
         } // hypothesize minimum dependencies
         if (logger.isDebugEnabled())
@@ -604,7 +611,9 @@ public class SearchSpace implements Serializable {
 
         // We have an initial hypothesis about where the minimal dependencies are.
         // Now, we determine the corresponding maximal non-dependencies.
-        List<Vertical> allegedMaxNonDeps = this.context.getSchema().calculateHittingSet(allegedMinDeps.keySet(), null).stream()
+        List<Vertical> allegedMaxNonDeps = this.context.getSchema()
+                .calculateHittingSet(allegedMinDeps.keySet(), null, this.context.profilingData)
+                .stream()
                 .map(minLeaveOutVertical -> minLeaveOutVertical.invert(mainPeak))
                 .collect(Collectors.toList());
         if (logger.isDebugEnabled())
@@ -665,6 +674,7 @@ public class SearchSpace implements Serializable {
         } else {
             // Otherwise, we have to continue our search.
             // For that matter, we restrict the search space and re-start the discovery there.
+            this.context.profilingData.numMisestimations.incrementAndGet();
             if (logger.isDebugEnabled())
                 logger.debug("* {} new peaks ({}).", peaks.size(), formatArityHistogram(peaks.stream().map(dc -> dc.vertical).collect(Collectors.toList())));
 
@@ -682,6 +692,7 @@ public class SearchSpace implements Serializable {
                     newScope,
                     this.globalVisitees,
                     this.context.getSchema(),
+                    this.launchPads.comparator(),
                     this.recursionDepth + 1,
                     this.sampleBoost * this.context.configuration.sampleBooster
             );
@@ -696,7 +707,16 @@ public class SearchSpace implements Serializable {
             }
             long _breakStartMillis = System.currentTimeMillis();
             nestedSearchSpace.discover(localVisitees);
-            _startMillis -= System.currentTimeMillis() - _breakStartMillis;
+            long recursionMillis = System.currentTimeMillis() - _breakStartMillis;
+            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+            int recursionDepth = 0;
+            for (StackTraceElement stackTraceElement : stackTrace) {
+                if (stackTraceElement.getMethodName().equals("trickleDown")) recursionDepth++;
+            }
+            if (recursionDepth == 1) {
+                this.context.profilingData.recursionMillis.addAndGet(recursionMillis);
+            }
+            _startMillis += recursionMillis; // Act as if we started later...
 
             // Finally, we need to check whether some of our alleged minimal dependencies are actually minimal.
             // We have to check them, because they lie outside of the scope and, thus, cannot be discovered in the
@@ -716,8 +736,8 @@ public class SearchSpace implements Serializable {
             }
         }
 
-        _profilingData.trickleDownMillis.addAndGet(System.currentTimeMillis() - _startMillis);
-        _profilingData.numTrickleDowns.incrementAndGet();
+        this.context.profilingData.trickleDownMillis.addAndGet(System.currentTimeMillis() - _startMillis);
+        this.context.profilingData.numTrickleDowns.incrementAndGet();
     }
 
     /**
@@ -972,18 +992,6 @@ public class SearchSpace implements Serializable {
         } finally {
             this.launchPadIndexLock.unlock();
         }
-    }
-
-    /**
-     * Contains data on the execution performance in a {@link SearchSpace}.
-     */
-    public static class ProfilingData implements Serializable {
-        public final AtomicLong probingNanos = new AtomicLong(0L);
-        public final AtomicLong numProbings = new AtomicLong(0L);
-        public final AtomicLong ascendMillis = new AtomicLong(0L);
-        public final AtomicLong numAscends = new AtomicLong(0L);
-        public final AtomicLong trickleDownMillis = new AtomicLong(0L);
-        public final AtomicLong numTrickleDowns = new AtomicLong(0L);
     }
 
 }

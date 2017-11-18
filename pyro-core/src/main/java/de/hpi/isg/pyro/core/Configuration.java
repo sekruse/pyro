@@ -32,6 +32,10 @@ public class Configuration extends AbstractPFDConfiguration {
     @MetanomeProperty
     public boolean isDeferFailedLaunchPads = true;
 
+    @Parameter(names = "--launchpadOrder", description = "how to prioritize launchpads (arity, error)")
+    @MetanomeProperty
+    public String launchpadOrder = "error";
+
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Sampling settings.
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

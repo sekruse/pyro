@@ -5,10 +5,13 @@ import de.hpi.isg.pyro.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.PrintStream;
+import java.io.Serializable;
 import java.lang.ref.Reference;
 import java.lang.ref.SoftReference;
 import java.lang.ref.WeakReference;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
@@ -49,6 +52,11 @@ public class ProfilingContext extends DependencyConsumer {
     final Random random;
 
     /**
+     * Collects performance profiling data.
+     */
+    public final ProfilingData profilingData = new ProfilingData();
+
+    /**
      * Creates a new instance.
      *
      * @param configuration the configuration for Pyro
@@ -58,6 +66,7 @@ public class ProfilingContext extends DependencyConsumer {
                             ColumnLayoutRelationData relationData,
                             Consumer<PartialKey> uccConsumer,
                             Consumer<PartialFD> fdConsumer) {
+        final long startMillis = System.currentTimeMillis();
         this.configuration = configuration;
         this.relationData = relationData;
         this.uccConsumer = uccConsumer;
@@ -88,6 +97,7 @@ public class ProfilingContext extends DependencyConsumer {
             this.agreeSetSamples = null;
         }
 
+        this.profilingData.initializationMillis.addAndGet(System.currentTimeMillis() - startMillis);
     }
 
     /**
@@ -111,6 +121,7 @@ public class ProfilingContext extends DependencyConsumer {
      * @return the created {@link AgreeSetSample}
      */
     AgreeSetSample createFocusedSample(Vertical focus, double boostFactor, boolean isUseWeakReference) {
+        final long startNanos = System.nanoTime();
         ListAgreeSetSample sample = ListAgreeSetSample.createFocusedFor(
                 this.relationData,
                 focus,
@@ -120,6 +131,8 @@ public class ProfilingContext extends DependencyConsumer {
         );
         if (logger.isDebugEnabled()) logger.debug("Created {} with a boost factor of {}.", sample, boostFactor);
         this.agreeSetSamples.put(focus, isUseWeakReference ? new WeakReference<>(sample) : new SoftReference<>(sample));
+        this.profilingData.samplingNanos.addAndGet(System.nanoTime() - startNanos);
+        this.profilingData.numSamplings.incrementAndGet();
         return sample;
     }
 
@@ -179,4 +192,85 @@ public class ProfilingContext extends DependencyConsumer {
         return this.relationData.getSchema();
     }
 
+    /**
+     * Contains data on the execution performance in a {@link SearchSpace}.
+     */
+    public static class ProfilingData implements Serializable {
+        public final AtomicLong initializationMillis = new AtomicLong(0L);
+        public final AtomicLong launchpadMillis = new AtomicLong(0L);
+        public final AtomicLong ascendMillis = new AtomicLong(0L);
+        public final AtomicLong trickleDownMillis = new AtomicLong(0L);
+        public final AtomicLong recursionMillis = new AtomicLong(0L);
+        public final AtomicLong operationMillis = new AtomicLong(0L);
+
+        public final AtomicLong numAscends = new AtomicLong(0L);
+        public final AtomicLong numTrickleDowns = new AtomicLong(0L);
+
+        public final AtomicLong hittingSetNanos = new AtomicLong(0L);
+        public final AtomicLong errorCalculationNanos = new AtomicLong(0L);
+        public final AtomicLong samplingNanos = new AtomicLong(0L);
+        public final AtomicLong errorEstimationNanos = new AtomicLong(0L);
+
+        public final AtomicLong numHittingSets = new AtomicLong(0L);
+        public final AtomicLong numErrorCalculations = new AtomicLong(0L);
+        public final AtomicLong numSamplings = new AtomicLong(0L);
+        public final AtomicLong numErrorEstimations = new AtomicLong(0L);
+
+        public final AtomicLong numDependencies = new AtomicLong(0L);
+        public final AtomicLong dependencyArity = new AtomicLong(0L);
+        public final AtomicLong ascensionHeight = new AtomicLong(0L);
+        public final AtomicLong trickleDepth = new AtomicLong(0L);
+        public final AtomicLong numMisestimations = new AtomicLong(0L);
+
+        public final Map<SearchSpace, AtomicLong> searchSpaceMillis = Collections.synchronizedMap(new HashMap<>());
+
+        public void printReport(String title, PrintStream out) {
+            out.printf("=======================================================================================\n");
+            out.printf("Report for %s\n", title);
+            out.printf("---Phases------------------------------------------------------------------------------\n");
+            out.printf("Initialization:                                                  %,10.3f s (%.2f%%)\n", initializationMillis.get() / 1000d, getRuntimePercentage(initializationMillis.get()));
+            out.printf("Launchpads:                                                      %,10.3f s (%.2f%%)\n", launchpadMillis.get() / 1000d, getRuntimePercentage(launchpadMillis.get()));
+            out.printf("Ascensions:                                                      %,10.3f s (%.2f%%)\n", ascendMillis.get() / 1000d, getRuntimePercentage(ascendMillis.get()));
+            out.printf("Trickles:                                                        %,10.3f s (%.2f%%)\n", trickleDownMillis.get() / 1000d, getRuntimePercentage(trickleDownMillis.get()));
+            out.printf("Recursions:                                                      %,10.3f s (%.2f%%)\n", recursionMillis.get() / 1000d, getRuntimePercentage(recursionMillis.get()));
+            out.printf("Total:                                                           %,10.3f s\n", (initializationMillis.get() + operationMillis.get()) / 1000d);
+            out.printf("- -Counts- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - \n");
+            out.printf("Ascensions:                                                      %,10d #\n", numAscends.get());
+            out.printf("Trickles:                                                        %,10d #\n", numTrickleDowns.get());
+            out.printf("---Operations--------------------------------------------------------------------------\n");
+            out.printf("Sampling:                                                        %,10.3f s (%.2f%%)\n", samplingNanos.get() / 1e9d, getRuntimePercentage(samplingNanos.get() * 1e-6));
+            out.printf("Error estimation:                                                %,10.3f s (%.2f%%)\n", errorEstimationNanos.get() / 1e9d, getRuntimePercentage(errorEstimationNanos.get() * 1e-6));
+            out.printf("Error calculation:                                               %,10.3f s (%.2f%%)\n", errorCalculationNanos.get() / 1e9d, getRuntimePercentage(errorCalculationNanos.get() * 1e-6));
+            out.printf("Hitting sets:                                                    %,10.3f s (%.2f%%)\n", hittingSetNanos.get() / 1e9d, getRuntimePercentage(hittingSetNanos.get() * 1e-6));
+            out.printf("- -Counts- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - \n");
+            out.printf("Sampling:                                                        %,10d #\n", numSamplings.get());
+            out.printf("Error estimation:                                                %,10d #\n", numErrorEstimations.get());
+            out.printf("Error calculation:                                               %,10d #\n", numErrorCalculations.get());
+            out.printf("Hitting sets:                                                    %,10d #\n", numHittingSets.get());
+            out.printf("---Miscellaneous-----------------------------------------------------------------------\n");
+            out.printf("Dependencies:                                                    %,10d #\n", numDependencies.get());
+            out.printf("Arity:                                                           %,10.3f attributes\n", dependencyArity.get() / (double) numDependencies.get());
+            out.printf("Ascension height:                                                %,10.3f\n", ascensionHeight.get() / (double) numAscends.get());
+            out.printf("Trickle depth:                                                   %,10.3f\n", trickleDepth.get() / (double) numTrickleDowns.get());
+            out.printf("Misestimations:                                                  %,10d #\n", numMisestimations.get());
+            out.printf("---Search spaces-----------------------------------------------------------------------\n");
+            List<Map.Entry<SearchSpace, AtomicLong>> searchSpaceMillisRanking = new ArrayList<>(searchSpaceMillis.entrySet());
+            searchSpaceMillisRanking.sort(Comparator.comparingLong(e -> -e.getValue().get()));
+            for (Map.Entry<SearchSpace, AtomicLong> entry : searchSpaceMillisRanking) {
+                String key = entry.getKey().toString();
+                out.printf("%-64s %,10.3f s (%.2f%%)\n",
+                        key.substring(0, Math.min(63, key.length())) + ":",
+                        entry.getValue().get() / 1000d,
+                        getRuntimePercentage(entry.getValue().get())
+                );
+
+            }
+            out.printf("=======================================================================================\n");
+        }
+
+        private double getRuntimePercentage(double millis) {
+            return 100d * millis / (initializationMillis.get() + operationMillis.get());
+        }
+
+    }
 }

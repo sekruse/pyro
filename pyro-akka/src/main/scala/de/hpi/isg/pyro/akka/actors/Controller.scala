@@ -193,10 +193,15 @@ class Controller(configuration: Configuration,
       configuration.uccErrorMeasure match {
         case "g1prime" =>
           val strategy = new KeyG1Strategy(
-            configuration.maxUccError - configuration.errorDev,
-            configuration.maxUccError + configuration.errorDev
+            configuration.maxUccError,
+            configuration.errorDev
           )
-          scheduler.registerSearchSpace(new SearchSpace(nextId(), strategy, schema))
+          val launchpadComparator = this.configuration.launchpadOrder match {
+            case "arity" => DependencyCandidate.fullArityErrorComparator
+            case "error" => DependencyCandidate.fullErrorArityComparator
+            case other => sys.error(s"Unknown launchpad order: $other")
+          }
+          scheduler.registerSearchSpace(new SearchSpace(nextId(), strategy, schema, launchpadComparator))
         case other => sys.error(s"Unsupported error measure ($other).")
       }
 
@@ -208,10 +213,15 @@ class Controller(configuration: Configuration,
           case "g1prime" =>
             val strategy = new FdG1Strategy(
               column,
-              configuration.maxUccError - configuration.errorDev,
-              configuration.maxUccError + configuration.errorDev
+              configuration.maxFdError,
+              configuration.errorDev
             )
-            scheduler.registerSearchSpace(new SearchSpace(nextId(), strategy, schema))
+            val launchpadComparator = this.configuration.launchpadOrder match {
+              case "arity" => DependencyCandidate.fullArityErrorComparator
+              case "error" => DependencyCandidate.fullErrorArityComparator
+              case other => sys.error(s"Unknown launchpad order: $other")
+            }
+            scheduler.registerSearchSpace(new SearchSpace(nextId(), strategy, schema, launchpadComparator))
         }
       }
     }

@@ -1,5 +1,6 @@
 package de.hpi.isg.pyro.model;
 
+import de.hpi.isg.pyro.core.ProfilingContext;
 import de.hpi.isg.pyro.util.BitSets;
 import de.hpi.isg.pyro.util.VerticalMap;
 import de.metanome.algorithm_integration.ColumnCombination;
@@ -141,7 +142,10 @@ public class RelationSchema implements Serializable {
      */
     public Collection<Vertical> calculateHittingSet(
             Collection<Vertical> verticals,
-            Predicate<Vertical> pruningFunction) {
+            Predicate<Vertical> pruningFunction,
+            ProfilingContext.ProfilingData profilingData) {
+
+        long startNanos = System.nanoTime();
 
         List<Vertical> sortedVerticals = new ArrayList<>(verticals);
         sortedVerticals.sort(Comparator.comparing(Vertical::getArity).reversed());
@@ -182,6 +186,9 @@ public class RelationSchema implements Serializable {
                 hittingSet.remove(invalidMember);
             }
         }
+
+        profilingData.hittingSetNanos.addAndGet(System.nanoTime() - startNanos);
+        profilingData.numHittingSets.incrementAndGet();
 
         // Produce the result.
         return hittingSet.keySet();
