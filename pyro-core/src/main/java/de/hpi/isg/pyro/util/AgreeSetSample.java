@@ -128,7 +128,7 @@ public abstract class AgreeSetSample {
                                                                    Random random,
                                                                    Factory<T> factory) {
         return createFocusedFor(
-                relation, restrictionVertical, restrictionPli, (int) (samplingFactor * restrictionPli.getNep()), random, factory
+                relation, restrictionVertical, restrictionPli, (int) (samplingFactor * restrictionPli.getNepAsLong()), random, factory
         );
     }
 
@@ -160,14 +160,14 @@ public abstract class AgreeSetSample {
         for (int columnIndex = freeColumnIndices.nextSetBit(0), i = 0;
              columnIndex != -1;
              columnIndex = freeColumnIndices.nextSetBit(columnIndex + 1), i++) {
-            relevantColumnData[i] = relation.getColumnData(i);
+            relevantColumnData[i] = relation.getColumnData(columnIndex);
         }
         BitSet agreeSetPrototype = (BitSet) restrictionVertical.getColumnIndices().clone();
         Object2LongOpenHashMap<BitSet> agreeSetCounters = new Object2LongOpenHashMap<>(relation.getNumRows());
         agreeSetCounters.defaultReturnValue(0);
 
         // Analyzing the PLI as to what we can sample.
-        double restrictionNep = restrictionPli.getNep();
+        long restrictionNep = restrictionPli.getNepAsLong();
         sampleSize = (int) Math.min(sampleSize, restrictionNep);
         if (sampleSize >= restrictionNep) {
             for (IntArrayList cluster : restrictionPli.getIndex()) {
@@ -195,19 +195,17 @@ public abstract class AgreeSetSample {
 
         } else {
             // Index the clusters by their probability of providing a random tuple pair.
-            double[] clusterProbabilityIndex = new double[restrictionPli.getNumNonSingletonClusters() - 1];
-            long numSeenTuplePairs = 0L;
-            for (int i = 0; i < clusterProbabilityIndex.length; i++) {
+            long[] clusterSizes = new long[restrictionPli.getNumNonSingletonClusters() - 1];
+            for (int i = 0; i < clusterSizes.length; i++) {
                 IntArrayList cluster = restrictionPli.getIndex().get(i);
                 long numTuplePairs = cluster.size() * (cluster.size() - 1L) / 2L;
-                numSeenTuplePairs += numTuplePairs;
-                clusterProbabilityIndex[i] = numSeenTuplePairs / restrictionNep;
+                clusterSizes[i] = numTuplePairs + (i > 0 ? clusterSizes[i - 1] : 0);
             }
 
             // Now do the actual sampling.
             for (int i = 0; i < sampleSize; i++) {
                 // Sample a cluster to draw the tuple pair from.
-                int clusterIndex = Arrays.binarySearch(clusterProbabilityIndex, random.nextDouble());
+                int clusterIndex = Arrays.binarySearch(clusterSizes, (long) (random.nextDouble() * restrictionNep));
                 if (clusterIndex < 0) clusterIndex = -(clusterIndex + 1);
                 IntArrayList cluster = restrictionPli.getIndex().get(clusterIndex);
 
