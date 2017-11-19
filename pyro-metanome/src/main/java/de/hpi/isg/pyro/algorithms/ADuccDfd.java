@@ -75,7 +75,7 @@ public class ADuccDfd
             Vertical keyColumns = relation.getSchema().emptyVertical;
             long maxEqualityPairs = (long) (this.configuration.maxUccError * relation.getNumTuplePairs());
             for (ColumnData columnData : relation.getColumnData()) {
-                double nep = columnData.getPositionListIndex().getNep();
+                long nep = columnData.getPositionListIndex().getNepAsLong();
                 if (nep <= maxEqualityPairs) {
                     if (this.configuration.isFindKeys) {
                         this.registerUcc(columnData.getColumn(), nep / relation.getNumTuplePairs(), Double.NaN);

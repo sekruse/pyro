@@ -359,6 +359,9 @@ public class SearchSpace implements Serializable {
                 } else {
                     // If we are not confident that we do not have a dependency, then we better check our candidate.
                     error = strategy.calculateError(traversalCandidate.vertical);
+                    double errorDiff = error - traversalCandidate.error.getMean();
+                    this.context.profilingData.errorRmse.addAndGet(errorDiff * errorDiff);
+                    this.context.profilingData.errorRmseCounter.incrementAndGet();
 
                     // Store the candidate's state.
                     localVisitees.put(traversalCandidate.vertical, new VerticalInfo(
@@ -428,6 +431,9 @@ public class SearchSpace implements Serializable {
             if (logger.isTraceEnabled())
                 logger.trace("   Hit the ceiling at {}.", strategy.format(traversalCandidate.vertical));
             error = strategy.calculateError(traversalCandidate.vertical);
+            double errorDiff = error - traversalCandidate.error.getMean();
+            this.context.profilingData.errorRmse.addAndGet(errorDiff * errorDiff);
+            this.context.profilingData.errorRmseCounter.incrementAndGet();
             if (logger.isTraceEnabled()) logger.trace("   Checking candidate... actual error: {}", error);
         }
 
@@ -475,10 +481,11 @@ public class SearchSpace implements Serializable {
         if (logger.isDebugEnabled())
             logger.debug("Estimate check for {}. Status: {}, estimate: {}, actual: {}, delta: {}",
                     strategy.format(traversalCandidate.vertical), isEstimateCorrect ? "correct" : "erroneous", traversalCandidate.error, actualError, diff);
-
-        {
-            strategy.calculateError(traversalCandidate.vertical);
-            strategy.createDependencyCandidate(traversalCandidate.vertical);
+        if (!isEstimateCorrect && logger.isDebugEnabled()) {
+            logger.debug("Incorrect estimate for {} (probably as per {}, estimate: {}, actual: {}, delta: {}).",
+                    strategy.format(traversalCandidate.vertical),
+                    this.context.getAgreeSetSample(traversalCandidate.vertical),
+                    traversalCandidate.error, actualError, diff);
         }
 
         if (!isEstimateCorrect && traversalCandidate.isExact()) {
@@ -674,7 +681,7 @@ public class SearchSpace implements Serializable {
         } else {
             // Otherwise, we have to continue our search.
             // For that matter, we restrict the search space and re-start the discovery there.
-            this.context.profilingData.numMisestimations.incrementAndGet();
+            this.context.profilingData.mispredictions.incrementAndGet();
             if (logger.isDebugEnabled())
                 logger.debug("* {} new peaks ({}).", peaks.size(), formatArityHistogram(peaks.stream().map(dc -> dc.vertical).collect(Collectors.toList())));
 
@@ -708,12 +715,7 @@ public class SearchSpace implements Serializable {
             long _breakStartMillis = System.currentTimeMillis();
             nestedSearchSpace.discover(localVisitees);
             long recursionMillis = System.currentTimeMillis() - _breakStartMillis;
-            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
-            int recursionDepth = 0;
-            for (StackTraceElement stackTraceElement : stackTrace) {
-                if (stackTraceElement.getMethodName().equals("trickleDown")) recursionDepth++;
-            }
-            if (recursionDepth == 1) {
+            if (this.recursionDepth == 1) {
                 this.context.profilingData.recursionMillis.addAndGet(recursionMillis);
             }
             _startMillis += recursionMillis; // Act as if we started later...
@@ -826,6 +828,9 @@ public class SearchSpace implements Serializable {
         double candidateError = minDepCandidate.isExact() ?
                 minDepCandidate.error.get() :
                 strategy.calculateError(minDepCandidate.vertical);
+        double errorDiff = candidateError - minDepCandidate.error.getMean();
+        this.context.profilingData.errorRmse.addAndGet(errorDiff * errorDiff);
+        this.context.profilingData.errorRmseCounter.incrementAndGet();
         if (candidateError <= strategy.maxDependencyError) {
             // TODO: I think, we don't need to add the dep to the localVisitees, because we won't visit it anymore.
             if (logger.isTraceEnabled())

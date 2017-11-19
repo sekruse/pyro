@@ -29,7 +29,9 @@ public class PositionListIndex {
      */
     private final IntArrayList nullCluster;
 
-    private final double entropy, nep;
+    private final double entropy;
+
+    private final long nep;
 
     private final int relationSize, originalRelationSize, size;
 
@@ -59,7 +61,7 @@ public class PositionListIndex {
                 index.remove(RelationData.nullValueId);
 
         double keyGap = 0d;
-        double nep = 0;
+        long nep = 0;
         int size = 0;
         for (Iterator<Int2ObjectMap.Entry<IntArrayList>> iterator = index.int2ObjectEntrySet().iterator();
              iterator.hasNext(); ) {
@@ -104,7 +106,7 @@ public class PositionListIndex {
                 index.get(RelationData.nullValueId) :
                 index.remove(RelationData.nullValueId);
         double keyGap = 0d;
-        double nep = 0;
+        long nep = 0;
         int size = 0;
         for (Iterator<Int2ObjectMap.Entry<IntArrayList>> iterator = index.int2ObjectEntrySet().iterator();
              iterator.hasNext(); ) {
@@ -140,7 +142,7 @@ public class PositionListIndex {
         clusters.sort(Comparator.comparing(cluster -> cluster.getInt(0)));
     }
 
-    private static double calculateNep(double numElements) {
+    private static long calculateNep(long numElements) {
         return numElements * (numElements - 1) / 2;
     }
 
@@ -148,7 +150,7 @@ public class PositionListIndex {
                               IntArrayList nullCluster,
                               int size,
                               double entropy,
-                              double nep,
+                              long nep,
                               int relationSize,
                               int originalRelationSize) {
         this.index = index;
@@ -180,7 +182,7 @@ public class PositionListIndex {
         ArrayList<IntArrayList> newIndex = new ArrayList<>();
         int newSize = 0;
         double newKeyGap = 0d;
-        double newNep = 0d;
+        long newNep = 0;
 
         // Prepare a partial index to do the probing on each cluster.
         Int2ObjectMap<IntArrayList> partialIndex = new Int2ObjectOpenHashMap<>();
@@ -456,6 +458,10 @@ public class PositionListIndex {
         return this.nep;
     }
 
+    public long getNepAsLong() {
+        return this.nep;
+    }
+
     public double getNumNonRedundantEP() {
         return this.size() - this.getNumNonSingletonClusters();
     }
@@ -506,7 +512,7 @@ public class PositionListIndex {
      */
     public PositionListIndex strip(IntList indices) {
         double newKeyGap = 0d;
-        double newNep = 0d;
+        long newNep = 0L;
         int newSize = 0;
         ArrayList<IntArrayList> newIndex = new ArrayList<>(this.index.size());
         IntArrayList strippedNullCluster = null;

@@ -1,5 +1,6 @@
 package de.hpi.isg.pyro.core;
 
+import com.google.common.util.concurrent.AtomicDouble;
 import de.hpi.isg.pyro.model.*;
 import de.hpi.isg.pyro.util.*;
 import org.slf4j.Logger;
@@ -220,7 +221,9 @@ public class ProfilingContext extends DependencyConsumer {
         public final AtomicLong dependencyArity = new AtomicLong(0L);
         public final AtomicLong ascensionHeight = new AtomicLong(0L);
         public final AtomicLong trickleDepth = new AtomicLong(0L);
-        public final AtomicLong numMisestimations = new AtomicLong(0L);
+        public final AtomicLong mispredictions = new AtomicLong(0L);
+        public final AtomicDouble errorRmse = new AtomicDouble(0d);
+        public final AtomicLong errorRmseCounter = new AtomicLong(0L);
 
         public final Map<SearchSpace, AtomicLong> searchSpaceMillis = Collections.synchronizedMap(new HashMap<>());
 
@@ -249,10 +252,11 @@ public class ProfilingContext extends DependencyConsumer {
             out.printf("Hitting sets:                                                    %,10d #\n", numHittingSets.get());
             out.printf("---Miscellaneous-----------------------------------------------------------------------\n");
             out.printf("Dependencies:                                                    %,10d #\n", numDependencies.get());
-            out.printf("Arity:                                                           %,10.3f attributes\n", dependencyArity.get() / (double) numDependencies.get());
+            out.printf("Arity:                                                           %,10.3f\n", dependencyArity.get() / (double) numDependencies.get());
             out.printf("Ascension height:                                                %,10.3f\n", ascensionHeight.get() / (double) numAscends.get());
             out.printf("Trickle depth:                                                   %,10.3f\n", trickleDepth.get() / (double) numTrickleDowns.get());
-            out.printf("Misestimations:                                                  %,10d #\n", numMisestimations.get());
+            out.printf("Error estimate RMSE:                                             %,10.3f\n", Math.sqrt(errorRmse.get() / errorRmseCounter.get()));
+            out.printf("Mispredictions:                                                  %,10d #\n", mispredictions.get());
             out.printf("---Search spaces-----------------------------------------------------------------------\n");
             List<Map.Entry<SearchSpace, AtomicLong>> searchSpaceMillisRanking = new ArrayList<>(searchSpaceMillis.entrySet());
             searchSpaceMillisRanking.sort(Comparator.comparingLong(e -> -e.getValue().get()));
