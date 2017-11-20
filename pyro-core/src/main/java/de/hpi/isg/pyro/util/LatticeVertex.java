@@ -15,6 +15,8 @@ public class LatticeVertex implements Comparable<LatticeVertex> {
 
     private final Vertical vertical;
 
+    private PositionListIndex positionListIndex;
+
     private final BitSet rhsCandidates = new BitSet();
 
     private boolean isKeyCandidate = false;
@@ -93,6 +95,14 @@ public class LatticeVertex implements Comparable<LatticeVertex> {
 
     public void setInvalid(boolean invalid) {
         isInvalid = invalid;
+    }
+
+    public PositionListIndex getPositionListIndex() {
+        return this.positionListIndex;
+    }
+
+    public void setPositionListIndex(PositionListIndex positionListIndex) {
+        this.positionListIndex = positionListIndex;
     }
 
     @Override
