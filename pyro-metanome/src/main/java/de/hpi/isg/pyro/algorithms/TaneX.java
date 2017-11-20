@@ -21,7 +21,7 @@ import de.metanome.algorithm_integration.AlgorithmExecutionException;
 import de.metanome.algorithm_integration.algorithm_types.*;
 import de.metanome.algorithm_integration.configuration.ConfigurationRequirement;
 import de.metanome.algorithm_integration.configuration.ConfigurationRequirementFileInput;
-import de.metanome.algorithm_integration.input.FileInputGenerator;
+import de.metanome.algorithm_integration.input.RelationalInputGenerator;
 import de.metanome.algorithm_integration.result_receiver.ColumnNameMismatchException;
 import de.metanome.algorithm_integration.result_receiver.CouldNotReceiveResultException;
 import de.metanome.algorithm_integration.result_receiver.FunctionalDependencyResultReceiver;
@@ -44,7 +44,7 @@ import java.util.*;
 public class TaneX
         extends DependencyConsumer
         implements FunctionalDependencyAlgorithm, UniqueColumnCombinationsAlgorithm,
-        StringParameterAlgorithm, IntegerParameterAlgorithm, FileInputParameterAlgorithm, BooleanParameterAlgorithm,
+        StringParameterAlgorithm, IntegerParameterAlgorithm, RelationalInputParameterAlgorithm, BooleanParameterAlgorithm,
         MetacrateClient {
 
     /**
@@ -59,7 +59,7 @@ public class TaneX
 
     public static final String INPUT_FILE_CONFIG_KEY = "inputFile";
 
-    private FileInputGenerator fileInputGenerator;
+    private RelationalInputGenerator inputGenerator;
 
     private MetanomePropertyLedger propertyLedger;
     private final Configuration configuration = new Configuration();
@@ -114,7 +114,7 @@ public class TaneX
 
         // Load data.
         final ColumnLayoutRelationData relation = ColumnLayoutRelationData.createFrom(
-                this.fileInputGenerator, this.configuration.isNullEqualNull, this.configuration.maxCols, this.configuration.maxRows
+                this.inputGenerator, this.configuration.isNullEqualNull, this.configuration.maxCols, this.configuration.maxRows
         );
         RelationSchema schema = relation.getSchema();
 
@@ -418,14 +418,14 @@ public class TaneX
         throw new AlgorithmConfigurationException(String.format("Unknown Boolean parameter: \"%s\"", identifier));
     }
 
+
     @Override
-    public void setFileInputConfigurationValue(String identifier,
-                                               FileInputGenerator... values)
+    public void setRelationalInputConfigurationValue(String identifier, RelationalInputGenerator... values)
             throws AlgorithmConfigurationException {
         switch (identifier) {
             case INPUT_FILE_CONFIG_KEY:
                 if (values.length != 1) throw new AlgorithmConfigurationException("Only one input file supported.");
-                this.fileInputGenerator = values[0];
+                this.inputGenerator = values[0];
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported argument.");
