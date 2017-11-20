@@ -6,6 +6,8 @@ import de.hpi.isg.pyro.model.Vertical;
 import de.hpi.isg.pyro.util.PositionListIndex;
 import de.metanome.algorithm_integration.result_receiver.ColumnNameMismatchException;
 import de.metanome.algorithm_integration.result_receiver.CouldNotReceiveResultException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.function.BiConsumer;
@@ -20,6 +22,8 @@ import java.util.function.BiConsumer;
  * @author Sebastian Kruse
  */
 public abstract class GraphTraverser {
+
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     /**
      * Calculates and caches {@link PositionListIndex}es.
@@ -140,7 +144,7 @@ public abstract class GraphTraverser {
     protected void randomWalk(Vertical seed)
             throws CouldNotReceiveResultException, ColumnNameMismatchException {
 
-        System.out.printf("Processing seed %s...\n", seed);
+        this.logger.debug("Processing seed {}...", seed);
 
         Stack<PathElement> trace = new Stack<>();
         Vertical nextVertical = seed;
