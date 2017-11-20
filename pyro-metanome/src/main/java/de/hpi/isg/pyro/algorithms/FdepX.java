@@ -8,6 +8,7 @@ import de.hpi.isg.mdms.model.constraints.ConstraintCollection;
 import de.hpi.isg.mdms.model.targets.Table;
 import de.hpi.isg.pyro.core.AbstractPFDConfiguration;
 import de.hpi.isg.pyro.core.DependencyConsumer;
+import de.hpi.isg.pyro.core.SearchSpace;
 import de.hpi.isg.pyro.fdep.FdTree;
 import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.properties.MetanomeProperty;
@@ -26,6 +27,8 @@ import de.metanome.algorithm_integration.result_receiver.UniqueColumnCombination
 import it.unimi.dsi.fastutil.ints.IntIterator;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
+import java.io.PrintStream;
+import java.io.Serializable;
 import java.util.*;
 
 /**
@@ -54,6 +57,7 @@ public class FdepX
     private Table table;
     private ConstraintCollection<PartialFunctionalDependency> pfdConstraintcollection;
     private ConstraintCollection<PartialUniqueColumnCombination> puccConstraintcollection;
+    private ProfilingData profilingData;
 
     @Override
     public void execute() throws AlgorithmExecutionException {
@@ -64,8 +68,11 @@ public class FdepX
             throw new AlgorithmExecutionException("Cannot process different FD and UCC errors.");
         }
         double maxError = this.configuration.isFindFds ? this.configuration.maxFdError : this.configuration.maxUccError;
+        this.profilingData = new ProfilingData();
 
         // Load the input file.
+        this.profilingData.overallMillis = System.currentTimeMillis();
+        this.profilingData.initializationMillis = System.currentTimeMillis();
         ArrayList<List<String>> relation = new ArrayList<>();
         RelationSchema relationSchema;
         try {
@@ -85,10 +92,12 @@ public class FdepX
         } catch (Exception e) {
             throw new AlgorithmExecutionException("Failed to load the relation.", e);
         }
+        this.profilingData.initializationMillis = System.currentTimeMillis() - this.profilingData.initializationMillis;
 
         // ---------------------------------------------------------------------------------------------------------- //
         // Build the negative cover.
         // ---------------------------------------------------------------------------------------------------------- //
+        this.profilingData.negativeCoverCalculationMillis = System.currentTimeMillis();
         long numAllTuplePairs = relation.size() * (relation.size() - 1L) / 2;
         long startMillis = System.currentTimeMillis();
         long nextUpdateMillis = startMillis + 1000L;
@@ -130,20 +139,28 @@ public class FdepX
             }
         }
         System.out.println();
+        this.profilingData.negativeCoverCalculationMillis = System.currentTimeMillis() - this.profilingData.negativeCoverCalculationMillis;
+        this.profilingData.negativeCoverSize = negativeCover.countNodes();
 
         // ---------------------------------------------------------------------------------------------------------- //
         // Trim the negative cover.
         // ---------------------------------------------------------------------------------------------------------- //
         if (maxError > 0.0) {
-            System.out.println("Trimming the negative cover...");
+            this.profilingData.trimCoverMillis = System.currentTimeMillis();
+            System.out.printf("Trimming the negative cover (%,d nodes)...\n", this.profilingData.negativeCoverSize);
             long numTuplePairs = relation.size() * (relation.size() - 1L) / 2;
             long maxViolations = (long) (maxError * numTuplePairs);
             negativeCover = negativeCover.prune(maxViolations);
+            this.profilingData.trimCoverMillis = System.currentTimeMillis() - this.profilingData.trimCoverMillis;
+            this.profilingData.trimmedNegativeCoverSize = negativeCover.countNodes();
+        } else {
+            this.profilingData.trimmedNegativeCoverSize = this.profilingData.negativeCoverSize;
         }
 
         // ---------------------------------------------------------------------------------------------------------- //
         // Induce the positive cover.
         // ---------------------------------------------------------------------------------------------------------- //
+        this.profilingData.coverInversionMillis = System.currentTimeMillis();
         System.out.println("Inducing the positive cover...");
         // Create the positive cover.
         FdTree positiveCover = new FdTree(relationSchema.getNumColumns() + 1);
@@ -184,7 +201,7 @@ public class FdepX
                             relationSchema.getVertical(lhs),
                             relationSchema.getColumn(rhs),
                             this.configuration.isCalculateErrors ?
-                                    calculateFdG1Error(relation, lhs, rhs) :
+                                    this.calculateFdG1Error(relation, lhs, rhs) :
                                     Double.NaN,
                             Double.NaN
                     );
@@ -193,16 +210,23 @@ public class FdepX
                     this.registerUcc(
                             relationSchema.getVertical(lhs),
                             this.configuration.isCalculateErrors ?
-                                    calculateUccG1Error(relation, lhs) :
+                                    this.calculateUccG1Error(relation, lhs) :
                                     Double.NaN,
                             Double.NaN
                     );
                 }
+                this.profilingData.numDependencies++;
             }
         }
+        this.profilingData.coverInversionMillis = System.currentTimeMillis()
+                - this.profilingData.coverInversionMillis
+                - this.profilingData.errorCalculationNanos / 1_000_000;
+        this.profilingData.overallMillis = System.currentTimeMillis() - this.profilingData.overallMillis;
+        this.profilingData.printReport("FdepX", System.out);
     }
 
-    private static double calculateFdG1Error(ArrayList<List<String>> relation, BitSet lhs, int rhs) {
+    private double calculateFdG1Error(ArrayList<List<String>> relation, BitSet lhs, int rhs) {
+        final long startNanos = System.nanoTime();
         Map<List<String>, Object2IntOpenHashMap<String>> grouping = new HashMap<>();
         for (List<String> tuple : relation) {
             grouping.computeIfAbsent(
@@ -223,10 +247,13 @@ public class FdepX
             }
             numViolatingTuplePairs += numGroupTuples * (numGroupTuples - 1L) - numSatisfyingGroupTuplePairs;
         }
-        return numViolatingTuplePairs / (double) (relation.size() * (relation.size() - 1L));
+        double error = numViolatingTuplePairs / (double) (relation.size() * (relation.size() - 1L));
+        this.profilingData.errorCalculationNanos = System.nanoTime() - startNanos;
+        return error;
     }
 
-    private static double calculateUccG1Error(ArrayList<List<String>> relation, BitSet columns) {
+    private double calculateUccG1Error(ArrayList<List<String>> relation, BitSet columns) {
+        final long startNanos = System.nanoTime();
         Object2IntOpenHashMap<List<String>> counter = new Object2IntOpenHashMap<>();
         for (List<String> tuple : relation) {
             counter.addTo(projectTuple(tuple, columns), 1);
@@ -238,7 +265,9 @@ public class FdepX
             numViolatingTuplePairs += groupSize * (groupSize - 1L);
         }
 
-        return numViolatingTuplePairs / (double) (relation.size() * (relation.size() - 1L));
+        double error = numViolatingTuplePairs / (double) (relation.size() * (relation.size() - 1L));
+        this.profilingData.errorCalculationNanos = System.nanoTime() - startNanos;
+        return error;
     }
 
     private static List<String> projectTuple(List<String> tuple, BitSet columnIndices) {
@@ -416,6 +445,44 @@ public class FdepX
 
         @MetanomeProperty
         private boolean isCalculateErrors = false;
+
+    }
+
+    /**
+     * Contains data on the execution performance in a {@link SearchSpace}.
+     */
+    public static class ProfilingData implements Serializable {
+        public long initializationMillis = 0L;
+        public long negativeCoverCalculationMillis = 0L;
+        public long trimCoverMillis = 0L;
+        public long coverInversionMillis = 0L;
+        public long errorCalculationNanos = 0L;
+        public long overallMillis = 0L;
+        public long numDependencies = 0L;
+        public long negativeCoverSize = 0L;
+        public long trimmedNegativeCoverSize = 0L;
+
+        public void printReport(String title, PrintStream out) {
+            out.printf("=======================================================================================\n");
+            out.printf("Report for %s\n", title);
+            out.printf("---Phases------------------------------------------------------------------------------\n");
+            out.printf("Initialization:                                                  %,10.3f s (%.2f%%)\n", initializationMillis / 1000d, getRuntimePercentage(initializationMillis));
+            out.printf("Negative cover:                                                  %,10.3f s (%.2f%%)\n", negativeCoverCalculationMillis / 1000d, getRuntimePercentage(negativeCoverCalculationMillis));
+            out.printf("Trim cover:                                                      %,10.3f s (%.2f%%)\n", trimCoverMillis / 1000d, getRuntimePercentage(trimCoverMillis));
+            out.printf("Cover inversion:                                                 %,10.3f s (%.2f%%)\n", coverInversionMillis / 1000d, getRuntimePercentage(coverInversionMillis));
+            out.printf("Error calculation:                                               %,10.3f s (%.2f%%)\n", errorCalculationNanos * 1e-9, getRuntimePercentage(errorCalculationNanos * 1e-6));
+            out.printf("Total:                                                           %,10.3f s\n", overallMillis / 1000d);
+            out.printf("---Miscellaneous-----------------------------------------------------------------------\n");
+            out.printf("Dependencies:                                                    %,10d #\n", numDependencies);
+            out.printf("Negative cover size:                                             %,10d\n", negativeCoverSize);
+            out.printf("Trimmed negative cover size:                                     %,10d\n", trimmedNegativeCoverSize);
+            out.printf("Error calculation efficiency:                                    %,10.3f ms/calculation\n", numDependencies / (double) errorCalculationNanos / 1e6);
+            out.printf("=======================================================================================\n");
+        }
+
+        private double getRuntimePercentage(double millis) {
+            return 100d * millis / overallMillis;
+        }
 
     }
 

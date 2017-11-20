@@ -199,6 +199,15 @@ public class FdTree {
         };
     }
 
+    /**
+     * Count the number of {@link Node}s in this instances
+     *
+     * @return the count
+     */
+    public int countNodes() {
+        return this.root.countNodes();
+    }
+
 
     /**
      * Represents a node of an {@link FdTree}.
@@ -423,6 +432,19 @@ public class FdTree {
                     }
                 }
             }
+        }
+
+        /**
+         * Count this and all child {@link Node}s.
+         *
+         * @return the number of {@link Node}s
+         */
+        public int countNodes() {
+            int numNodes = 1;
+            for (Node child : children) {
+                if (child != null) numNodes += child.countNodes();
+            }
+            return numNodes;
         }
     }
 }
