@@ -23,6 +23,8 @@ import de.metanome.algorithm_integration.result_receiver.ColumnNameMismatchExcep
 import de.metanome.algorithm_integration.result_receiver.CouldNotReceiveResultException;
 import de.metanome.algorithm_integration.result_receiver.FunctionalDependencyResultReceiver;
 import de.metanome.algorithm_integration.result_receiver.UniqueColumnCombinationResultReceiver;
+import it.unimi.dsi.fastutil.ints.IntIterator;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 import java.util.*;
 
@@ -46,7 +48,7 @@ public class FdepX
     private RelationalInputGenerator inputGenerator;
 
     private MetanomePropertyLedger propertyLedger;
-    private final TaneX.Configuration configuration = new TaneX.Configuration();
+    private final FdepX.Configuration configuration = new FdepX.Configuration();
 
     private MetadataStore metadataStore;
     private Table table;
@@ -150,8 +152,7 @@ public class FdepX
         for (int rhs = 0; rhs < relationSchema.getNumColumns() + 1; rhs++) {
             // Determine whether the RHS is a normal attribute or the artificial key.
             boolean isFdRhs = rhs < relationSchema.getNumColumns();
-            if (isFdRhs && !this.configuration.isFindFds ||
-                    !isFdRhs && !this.configuration.isFindKeys) continue;
+            if (isFdRhs && !this.configuration.isFindFds || !isFdRhs && !this.configuration.isFindKeys) continue;
 
             rhsBitSet.set(rhs);
             // Add the most general FD as initial hypothesis.
@@ -179,13 +180,75 @@ public class FdepX
             // Output all the FDs for the RHS.
             for (BitSet lhs : positiveCover.getAllLhs(rhs)) {
                 if (isFdRhs) {
-                    this.registerFd(relationSchema.getVertical(lhs), relationSchema.getColumn(rhs), Double.NaN, Double.NaN);
+                    this.registerFd(
+                            relationSchema.getVertical(lhs),
+                            relationSchema.getColumn(rhs),
+                            this.configuration.isCalculateErrors ?
+                                    calculateFdG1Error(relation, lhs, rhs) :
+                                    Double.NaN,
+                            Double.NaN
+                    );
                 } else {
                     // If the RHS is the artifical key attribute, then we can interpret the LHS as keys.
-                    this.registerUcc(relationSchema.getVertical(lhs), Double.NaN, Double.NaN);
+                    this.registerUcc(
+                            relationSchema.getVertical(lhs),
+                            this.configuration.isCalculateErrors ?
+                                    calculateUccG1Error(relation, lhs) :
+                                    Double.NaN,
+                            Double.NaN
+                    );
                 }
             }
         }
+    }
+
+    private static double calculateFdG1Error(ArrayList<List<String>> relation, BitSet lhs, int rhs) {
+        Map<List<String>, Object2IntOpenHashMap<String>> grouping = new HashMap<>();
+        for (List<String> tuple : relation) {
+            grouping.computeIfAbsent(
+                    projectTuple(tuple, lhs),
+                    key -> new Object2IntOpenHashMap<>()
+            ).addTo(tuple.get(rhs), 1);
+        }
+        long numViolatingTuplePairs = 0L;
+        for (Object2IntOpenHashMap<String> group : grouping.values()) {
+            if (group.size() == 1) continue;
+            long numSatisfyingGroupTuplePairs = group.size() * (group.size() - 1L);
+            int numGroupTuples = 0;
+            for (IntIterator iterator = group.values().iterator();
+                 iterator.hasNext(); ) {
+                long subgroupSize = iterator.nextInt();
+                numSatisfyingGroupTuplePairs += subgroupSize * (subgroupSize - 1L);
+                numGroupTuples += subgroupSize;
+            }
+            numViolatingTuplePairs += numGroupTuples * (numGroupTuples - 1L) - numSatisfyingGroupTuplePairs;
+        }
+        return numViolatingTuplePairs / (double) (relation.size() * (relation.size() - 1L));
+    }
+
+    private static double calculateUccG1Error(ArrayList<List<String>> relation, BitSet columns) {
+        Object2IntOpenHashMap<List<String>> counter = new Object2IntOpenHashMap<>();
+        for (List<String> tuple : relation) {
+            counter.addTo(projectTuple(tuple, columns), 1);
+        }
+        long numViolatingTuplePairs = 0L;
+        for (IntIterator iterator = counter.values().iterator();
+             iterator.hasNext(); ) {
+            long groupSize = iterator.nextInt();
+            numViolatingTuplePairs += groupSize * (groupSize - 1L);
+        }
+
+        return numViolatingTuplePairs / (double) (relation.size() * (relation.size() - 1L));
+    }
+
+    private static List<String> projectTuple(List<String> tuple, BitSet columnIndices) {
+        List<String> projection = new ArrayList<>(columnIndices.cardinality());
+        for (int i = columnIndices.nextSetBit(0);
+             i != -1;
+             i = columnIndices.nextSetBit(i + 1)) {
+            projection.add(tuple.get(i));
+        }
+        return projection;
     }
 
     /**
@@ -350,6 +413,9 @@ public class FdepX
 
         @MetanomeProperty
         private String tableIdentifier = null;
+
+        @MetanomeProperty
+        private boolean isCalculateErrors = false;
 
     }
 
