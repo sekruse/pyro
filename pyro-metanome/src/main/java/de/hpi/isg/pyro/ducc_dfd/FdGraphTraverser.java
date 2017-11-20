@@ -61,7 +61,7 @@ public class FdGraphTraverser extends GraphTraverser {
         final long startNanos = System.nanoTime();
         PositionListIndex lhsPli = this.pliRepository.getOrCalculateAndCache(vertical);
         PositionListIndex lhsRhsPli = this.pliRepository.getOrCalculateAndCache(vertical.union(this.rhs));
-        if (this.maxError == 0) return lhsPli.size() == lhsRhsPli.size() ? 0.0 : Double.POSITIVE_INFINITY;
+        if (this.maxError == 0) return lhsPli.getNumClusters() == lhsRhsPli.getNumClusters() ? 0.0 : Double.POSITIVE_INFINITY;
         double error = (lhsPli.getNep() - lhsRhsPli.getNep()) / this.numTuplePairs;
         this.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
         this.profilingData.numErrorCalculations.incrementAndGet();
