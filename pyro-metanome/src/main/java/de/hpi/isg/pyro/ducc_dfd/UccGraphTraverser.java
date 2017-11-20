@@ -36,6 +36,7 @@ public class UccGraphTraverser extends GraphTraverser {
      * @param pruningGraphPartitionCapacity see {@link Cover#partitionCapacity}
      * @param maxError                      maximum error for candidates to classify as (partial) UCCs
      * @param numTuplePairs                 the number of tuple pairs in the relation
+     * @param profilingData                 to store runtime measurements
      */
     public UccGraphTraverser(RelationSchema schema,
                              PliRepository pliRepository,
@@ -43,17 +44,22 @@ public class UccGraphTraverser extends GraphTraverser {
                              Vertical prunedColumns,
                              int pruningGraphPartitionCapacity,
                              double maxError,
-                             long numTuplePairs) {
-        super(schema, pliRepository, uccConsumer, pruningGraphPartitionCapacity, prunedColumns);
+                             long numTuplePairs,
+                             ProfilingData profilingData) {
+        super(schema, pliRepository, uccConsumer, pruningGraphPartitionCapacity, prunedColumns, profilingData);
         this.maxError = maxError;
         this.numTuplePairs = numTuplePairs;
     }
 
     @Override
     protected double calculateError(Vertical vertical) {
+        final long startNanos = System.nanoTime();
         PositionListIndex pli = this.pliRepository.getOrCalculateAndCache(vertical);
         if (this.maxError == 0) return pli.size() == 0 ? 0.0 : Double.POSITIVE_INFINITY;
-        return pli.getNep() / this.numTuplePairs;
+        final double error = pli.getNep() / this.numTuplePairs;
+        this.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
+        this.profilingData.numErrorCalculations.incrementAndGet();
+        return error;
     }
 
     @Override

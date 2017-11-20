@@ -39,6 +39,7 @@ public class FdGraphTraverser extends GraphTraverser {
      * @param pruningGraphPartitionCapacity see {@link Cover#partitionCapacity}
      * @param maxError                      maximum error for candidates to classify as (partial) UCCs
      * @param numTuplePairs                 the number of tuple pairs in the relation
+     * @param profilingData                 to store runtime measurements
      */
     public FdGraphTraverser(Column rhs,
                             RelationSchema schema,
@@ -47,8 +48,9 @@ public class FdGraphTraverser extends GraphTraverser {
                             Vertical prunedColumns,
                             int pruningGraphPartitionCapacity,
                             double maxError,
-                            long numTuplePairs) {
-        super(schema, pliRepository, fdConsumer, pruningGraphPartitionCapacity, prunedColumns);
+                            long numTuplePairs,
+                            ProfilingData profilingData) {
+        super(schema, pliRepository, fdConsumer, pruningGraphPartitionCapacity, prunedColumns, profilingData);
         this.rhs = rhs;
         this.maxError = maxError;
         this.numTuplePairs = numTuplePairs;
@@ -56,10 +58,14 @@ public class FdGraphTraverser extends GraphTraverser {
 
     @Override
     protected double calculateError(Vertical vertical) {
+        final long startNanos = System.nanoTime();
         PositionListIndex lhsPli = this.pliRepository.getOrCalculateAndCache(vertical);
         PositionListIndex lhsRhsPli = this.pliRepository.getOrCalculateAndCache(vertical.union(this.rhs));
         if (this.maxError == 0) return lhsPli.size() == lhsRhsPli.size() ? 0.0 : Double.POSITIVE_INFINITY;
-        return (lhsPli.getNep() - lhsRhsPli.getNep()) / this.numTuplePairs;
+        double error = (lhsPli.getNep() - lhsRhsPli.getNep()) / this.numTuplePairs;
+        this.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
+        this.profilingData.numErrorCalculations.incrementAndGet();
+        return error;
     }
 
     @Override

@@ -10,6 +10,7 @@ import de.hpi.isg.pyro.core.AbstractPFDConfiguration;
 import de.hpi.isg.pyro.core.DependencyConsumer;
 import de.hpi.isg.pyro.ducc_dfd.FdGraphTraverser;
 import de.hpi.isg.pyro.ducc_dfd.PliRepository;
+import de.hpi.isg.pyro.ducc_dfd.ProfilingData;
 import de.hpi.isg.pyro.ducc_dfd.UccGraphTraverser;
 import de.hpi.isg.pyro.model.Column;
 import de.hpi.isg.pyro.model.ColumnData;
@@ -32,6 +33,7 @@ import de.metanome.algorithm_integration.result_receiver.UniqueColumnCombination
 
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * This is a combined implementation of the Ducc and Dfd algorithm based on existing Metanome implementations.
@@ -62,16 +64,20 @@ public class ADuccDfd
         if (!this.configuration.isFindFds && !this.configuration.isFindKeys) {
             throw new AlgorithmExecutionException("Told to find neither FDs nor UCCs.");
         }
+        final ProfilingData profilingData = new ProfilingData();
 
         System.out.println("Loading and preprocessing input data...");
         // Load the relation.
+        long startMillis = System.currentTimeMillis();
         ColumnLayoutRelationData relation = ColumnLayoutRelationData.createFrom(
                 this.fileInputGenerator, this.configuration.isNullEqualNull, this.configuration.maxCols, this.configuration.maxRows
         );
         PliRepository pliRepository = new PliRepository(relation, this.configuration.pliCacheCapacity, this.configuration.protectedLruPlis);
+        profilingData.initializationMillis.addAndGet(System.currentTimeMillis() - startMillis);
 
         // Run A-DUCC.
         if (this.configuration.isFindKeys) {
+            startMillis = System.currentTimeMillis();
             Vertical keyColumns = relation.getSchema().emptyVertical;
             long maxEqualityPairs = (long) (this.configuration.maxUccError * relation.getNumTuplePairs());
             for (ColumnData columnData : relation.getColumnData()) {
@@ -91,14 +97,19 @@ public class ADuccDfd
                     keyColumns,
                     this.configuration.indexRebalancingThreshold,
                     this.configuration.maxUccError,
-                    relation.getNumTuplePairs()
+                    relation.getNumTuplePairs(),
+                    profilingData
             );
             uccGraphTraverser.traverseGraph();
+            long elapsedMillis = System.currentTimeMillis() - startMillis;
+            profilingData.operationMillis.addAndGet(elapsedMillis);
+            profilingData.searchSpaceMillis.computeIfAbsent("UCCs", k -> new AtomicLong()).addAndGet(elapsedMillis);
         }
 
         // Run A-DFD.
         if (this.configuration.isFindKeys) {
             for (Column rhs : relation.getSchema().getColumns()) {
+                startMillis = System.currentTimeMillis();
                 System.out.printf("Searching for FDs with %s as RHS...\n", rhs);
 
                 // Check for 0-ary FDs.
@@ -118,12 +129,21 @@ public class ADuccDfd
                         rhs,
                         this.configuration.indexRebalancingThreshold,
                         this.configuration.maxUccError,
-                        relation.getNumTuplePairs()
+                        relation.getNumTuplePairs(),
+                        profilingData
                 );
                 fdGraphTraverser.traverseGraph();
+
+                long elapsedMillis = System.currentTimeMillis() - startMillis;
+                profilingData.operationMillis.addAndGet(elapsedMillis);
+                profilingData.searchSpaceMillis
+                        .computeIfAbsent(String.format("FDs with RHS %s", rhs.getName()), k -> new AtomicLong())
+                        .addAndGet(elapsedMillis);
             }
         }
 
+        // Report the runtime measurements.
+        profilingData.printReport("A-DUCC/DFD", System.out);
     }
 
     @Override

@@ -100,6 +100,9 @@ class PyroAkka extends MetacrateClient
 
   @throws(classOf[AlgorithmExecutionException])
   override def execute(): Unit = {
+    if (configuration.isInitialPause) {
+      scala.io.StdIn.readLine("Press Enter to continue...")
+    }
     try {
       Pyro.profile(
         input = RelationalInputGeneratorInputMethod(this.inputGenerator),

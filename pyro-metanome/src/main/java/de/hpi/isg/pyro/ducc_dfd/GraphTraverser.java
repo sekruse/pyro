@@ -82,6 +82,11 @@ public abstract class GraphTraverser {
     protected final BiConsumer<Vertical, Double> minimumDependencyConsumer;
 
     /**
+     * Collects runtime measurements.
+     */
+    protected final ProfilingData profilingData;
+
+    /**
      * Creates a new instance.
      *
      * @param schema                        which should be traversed
@@ -93,7 +98,9 @@ public abstract class GraphTraverser {
     protected GraphTraverser(RelationSchema schema,
                              PliRepository pliRepository,
                              BiConsumer<Vertical, Double> minimumDependencyConsumer,
-                             int pruningGraphPartitionCapacity, Vertical prunedColumns) {
+                             int pruningGraphPartitionCapacity,
+                             Vertical prunedColumns,
+                             ProfilingData profilingData) {
         this.schema = schema;
         this.pliRepository = pliRepository;
         this.minimumDependencyConsumer = minimumDependencyConsumer;
@@ -102,6 +109,7 @@ public abstract class GraphTraverser {
         this.negativeGraph = new SupersetCover(this.schema, pruningGraphPartitionCapacity);
         this.holeFinder = new HoleFinder(this.schema, prunedColumns);
         this.seeds = new ArrayList<>(Arrays.asList(this.prunedColumns.invert().getColumns()));
+        this.profilingData = profilingData;
     }
 
     /**
@@ -114,7 +122,10 @@ public abstract class GraphTraverser {
         //initial PLI
         Vertical seed = this.getSeed();
         while (null != seed) {
+            long startMillis = System.currentTimeMillis();
             this.randomWalk(seed);
+            this.profilingData.walkMillis.addAndGet(System.currentTimeMillis() - startMillis);
+            this.profilingData.numWalks.incrementAndGet();
             seed = this.getSeed();
         }
 
@@ -162,7 +173,10 @@ public abstract class GraphTraverser {
                             );
                             if (coverElement.equals(pathElement.vertical)) {
                                 this.maximalNegatives.add(coverElement);
+                                final long startNanos = System.nanoTime();
                                 this.holeFinder.updateMaximalNonDependency(coverElement);
+                                this.profilingData.hittingSetNanos.addAndGet(System.nanoTime() - startNanos);
+                                this.profilingData.numHittingSets.incrementAndGet();
                             }
                         }
 
@@ -188,6 +202,8 @@ public abstract class GraphTraverser {
             if (error <= this.getErrorThreshold()) {
                 newPathElement = new PathElement(nextVertical, this.getNonEmptyDirectSubsets(nextVertical), error);
                 this.positiveGraph.add(nextVertical);
+                this.profilingData.numDependencies.incrementAndGet();
+                this.profilingData.dependencyArity.addAndGet(nextVertical.getArity());
 
             } else {
                 newPathElement = new PathElement(nextVertical, this.getDirectSupersets(nextVertical), error);
@@ -196,7 +212,6 @@ public abstract class GraphTraverser {
             trace.push(newPathElement);
             nextVertical = null;
         }
-
     }
 
     /**
@@ -237,7 +252,11 @@ public abstract class GraphTraverser {
      * @return the holes
      */
     protected ArrayList<Vertical> getHoles() {
-        return this.holeFinder.getHoles(this.minimalPositives);
+        final long startNanos = System.nanoTime();
+        ArrayList<Vertical> holes = this.holeFinder.getHoles(this.minimalPositives);
+        this.profilingData.holeNanos.addAndGet(System.nanoTime() - startNanos);
+        this.profilingData.numHoles.incrementAndGet();
+        return holes;
     }
 
     /**

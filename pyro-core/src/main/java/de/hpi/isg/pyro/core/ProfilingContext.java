@@ -257,6 +257,7 @@ public class ProfilingContext extends DependencyConsumer {
             out.printf("Trickle depth:                                                   %,10.3f\n", trickleDepth.get() / (double) numTrickleDowns.get());
             out.printf("Error estimate RMSE:                                             %,10.3f\n", Math.sqrt(errorRmse.get() / errorRmseCounter.get()));
             out.printf("Mispredictions:                                                  %,10d #\n", mispredictions.get());
+            out.printf("Error calculation efficiency:                                    %,10.3f ms/calculation\n", errorCalculationNanos.get() / numDependencies.doubleValue() / 1e6);
             out.printf("---Search spaces-----------------------------------------------------------------------\n");
             List<Map.Entry<SearchSpace, AtomicLong>> searchSpaceMillisRanking = new ArrayList<>(searchSpaceMillis.entrySet());
             searchSpaceMillisRanking.sort(Comparator.comparingLong(e -> -e.getValue().get()));

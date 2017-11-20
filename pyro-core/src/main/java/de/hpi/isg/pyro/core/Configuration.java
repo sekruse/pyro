@@ -84,6 +84,10 @@ public class Configuration extends AbstractPFDConfiguration {
     @MetanomeProperty
     public boolean isCheckEstimates = false;
 
+    @Parameter(names = "--isInitialPause", description = "whether to pause before starting the algorithm")
+    @MetanomeProperty
+    public boolean isInitialPause = false;
+
 //    /**
 //     * If Pyro should be run in the distributed mode, then this property should include a semicolon separated list of
 //     * hosts to run on, e.g, {@code "worker1:35711;worker2:35711;worker3:35711"}, with the first host being the head of
