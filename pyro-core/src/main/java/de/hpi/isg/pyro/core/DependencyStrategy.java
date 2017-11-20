@@ -19,7 +19,7 @@ abstract public class DependencyStrategy implements Serializable {
     final double maxDependencyError;
 
     /**
-     * The maximum error permitted for dependencies.
+     * The minimum error permitted for non-dependencies.
      */
     final double minNonDependencyError;
 

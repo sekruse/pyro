@@ -1,7 +1,5 @@
 package de.hpi.isg.pyro.ducc_dfd;
 
-import de.hpi.isg.pyro.core.SearchSpace;
-
 import java.io.PrintStream;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;

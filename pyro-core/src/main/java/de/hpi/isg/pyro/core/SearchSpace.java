@@ -845,7 +845,7 @@ public class SearchSpace implements Serializable {
         } else {
             if (logger.isTraceEnabled())
                 logger.trace("* Guessed incorrect {}-ary minimum dependency candidate.", minDepCandidate.vertical.getArity());
-            localVisitees.put(minDepCandidate.vertical, new VerticalInfo(false, false));
+            localVisitees.put(minDepCandidate.vertical, VerticalInfo.forNonDependency());
 
             // If we had a wrong guess, we re-sample so as to provide insights for the child vertices.
             if (strategy.shouldResample(minDepCandidate.vertical, boostFactor)) {

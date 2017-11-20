@@ -162,6 +162,7 @@ public abstract class GraphTraverser {
                             );
                             if (coverElement.equals(pathElement.vertical)) {
                                 this.found++;
+                                this.profilingData.numDependencies.incrementAndGet();
                                 this.minimalPositives.add(coverElement);
                                 this.minimumDependencyConsumer.accept(coverElement, pathElement.error);
                             }
@@ -202,7 +203,6 @@ public abstract class GraphTraverser {
             if (error <= this.getErrorThreshold()) {
                 newPathElement = new PathElement(nextVertical, this.getNonEmptyDirectSubsets(nextVertical), error);
                 this.positiveGraph.add(nextVertical);
-                this.profilingData.numDependencies.incrementAndGet();
                 this.profilingData.dependencyArity.addAndGet(nextVertical.getArity());
 
             } else {

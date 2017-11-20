@@ -192,6 +192,13 @@ public interface Vertical extends Serializable {
         return parents;
     }
 
+    default boolean containsAllColumnIndices(int... columnIndices) {
+        for (int columnIndex : columnIndices) {
+            if (!this.getColumnIndices().get(columnIndex)) return false;
+        }
+        return true;
+    }
+
     /**
      * Convert this instance into a {@link de.metanome.algorithm_integration.ColumnCombination}.
      *

@@ -2,6 +2,7 @@ package de.hpi.isg.pyro.ducc_dfd;
 
 import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
+import de.hpi.isg.pyro.util.PFDRater;
 import de.hpi.isg.pyro.util.PositionListIndex;
 
 import java.util.function.BiConsumer;
@@ -59,7 +60,7 @@ public class UccGraphTraverser extends GraphTraverser {
         final double error = pli.getNep() / this.numTuplePairs;
         this.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
         this.profilingData.numErrorCalculations.incrementAndGet();
-        return error;
+        return PFDRater.round(error);
     }
 
     @Override
