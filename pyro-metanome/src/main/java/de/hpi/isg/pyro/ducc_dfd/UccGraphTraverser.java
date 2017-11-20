@@ -56,8 +56,12 @@ public class UccGraphTraverser extends GraphTraverser {
     protected double calculateError(Vertical vertical) {
         final long startNanos = System.nanoTime();
         PositionListIndex pli = this.pliRepository.getOrCalculateAndCache(vertical);
-        if (this.maxError == 0) return pli.size() == 0 ? 0.0 : Double.POSITIVE_INFINITY;
-        final double error = pli.getNep() / this.numTuplePairs;
+        final double error;
+        if (this.maxError == 0) {
+            error = pli.size() == 0 ? 0.0 : Double.POSITIVE_INFINITY;
+        } else {
+            error = pli.getNep() / this.numTuplePairs;
+        }
         this.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
         this.profilingData.numErrorCalculations.incrementAndGet();
         return PFDRater.round(error);
