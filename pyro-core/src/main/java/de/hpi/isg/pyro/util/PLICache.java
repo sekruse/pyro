@@ -21,8 +21,11 @@ public class PLICache {
 
     private final VerticalMap<PositionListIndex> index;
 
+    private final double cachingProbability;
+
     public PLICache(RelationData relationData,
-                    boolean isSynchronized) {
+                    boolean isSynchronized,
+                    double cachingProbability) {
         this.relationData = relationData;
         this.index = isSynchronized ?
                 new SynchronizedVerticalMap<>(this.relationData.getSchema()) :
@@ -30,6 +33,7 @@ public class PLICache {
         for (Column column : relationData.getSchema().getColumns()) {
             this.index.put(column, relationData.getColumnData(column.getIndex()).getPositionListIndex());
         }
+        this.cachingProbability = cachingProbability;
     }
 
     /**
@@ -138,7 +142,7 @@ public class PLICache {
                 currentVertical = currentVertical.union(operand.vertical);
                 pli = pli.intersect(operand.pli);
                 // Cache the PLI.
-                if (random.nextDouble() < 1d / currentVertical.getArity()) {
+                if (random.nextDouble() < this.cachingProbability) {
                     this.index.put(currentVertical, pli);
                 }
             }

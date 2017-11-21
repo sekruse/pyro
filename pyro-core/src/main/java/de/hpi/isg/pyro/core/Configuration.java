@@ -64,17 +64,9 @@ public class Configuration extends AbstractPFDConfiguration {
     // Cache settings.
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    @Parameter(names = "--isCacheIntermediatePLIs", description = "whether intermediate PLIs should be cached")
+    @Parameter(names = "--cachingProbability", description = "the probability of caching a calculated PLI")
     @MetanomeProperty
-    public boolean isCacheIntermediatePLIs = false;
-
-    @Parameter(names = "--isUseWeakReferencesForPlis", description = "whether PLIs should be cached using WeakReferences (otherwise SoftReferences)")
-    @MetanomeProperty
-    public boolean isUseWeakReferencesForPlis = true;
-
-    @Parameter(names = "--isUseWeakReferencesForSamples", description = "whether agree set samples should be cached using WeakReferences (otherwise SoftReferences)")
-    @MetanomeProperty
-    public boolean isUseWeakReferencesForSamples = false;
+    public double cachingProbability = 0.5d;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Miscellaneous settings.
