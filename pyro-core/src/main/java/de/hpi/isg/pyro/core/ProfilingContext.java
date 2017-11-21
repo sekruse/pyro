@@ -246,6 +246,10 @@ public class ProfilingContext extends DependencyConsumer {
         public final AtomicLong mispredictions = new AtomicLong(0L);
         public final AtomicDouble errorRmse = new AtomicDouble(0d);
         public final AtomicLong errorRmseCounter = new AtomicLong(0L);
+        public final AtomicLong ascendErrorCalculations = new AtomicLong(0L);
+        public final AtomicLong ceilingErrorCalculations = new AtomicLong(0L);
+        public final AtomicLong trickleErrorCalculations = new AtomicLong(0L);
+        public final AtomicLong verifyErrorCalculations = new AtomicLong(0L);
 
         public final Map<SearchSpace, AtomicLong> searchSpaceMillis = Collections.synchronizedMap(new HashMap<>());
 
@@ -280,6 +284,10 @@ public class ProfilingContext extends DependencyConsumer {
             out.printf("Error estimate RMSE:                                             %,10.3f\n", Math.sqrt(errorRmse.get() / errorRmseCounter.get()));
             out.printf("Mispredictions:                                                  %,10d #\n", mispredictions.get());
             out.printf("Error calculation efficiency:                                    %,10.3f ms/calculation\n", errorCalculationNanos.get() / numDependencies.doubleValue() / 1e6);
+            out.printf("Ascend error calculations:                                       %,10d # (%.2f%%)\n", ascendErrorCalculations.get(), ascendErrorCalculations.get() / numErrorCalculations.doubleValue() * 100);
+            out.printf("Ceiling error calculations:                                      %,10d # (%.2f%%)\n", ceilingErrorCalculations.get(), ceilingErrorCalculations.get() / numErrorCalculations.doubleValue() * 100);
+            out.printf("Trickle error calculations:                                      %,10d # (%.2f%%)\n", trickleErrorCalculations.get(), trickleErrorCalculations.get() / numErrorCalculations.doubleValue() * 100);
+            out.printf("Verification error calculations:                                 %,10d # (%.2f%%)\n", verifyErrorCalculations.get(), verifyErrorCalculations.get() / numErrorCalculations.doubleValue() * 100);
             out.printf("---Search spaces-----------------------------------------------------------------------\n");
             List<Map.Entry<SearchSpace, AtomicLong>> searchSpaceMillisRanking = new ArrayList<>(searchSpaceMillis.entrySet());
             searchSpaceMillisRanking.sort(Comparator.comparingLong(e -> -e.getValue().get()));

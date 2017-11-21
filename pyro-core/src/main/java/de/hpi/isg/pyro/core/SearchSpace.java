@@ -362,6 +362,7 @@ public class SearchSpace implements Serializable {
                     double errorDiff = error - traversalCandidate.error.getMean();
                     this.context.profilingData.errorRmse.addAndGet(errorDiff * errorDiff);
                     this.context.profilingData.errorRmseCounter.incrementAndGet();
+                    this.context.profilingData.ascendErrorCalculations.incrementAndGet();
 
                     // Store the candidate's state.
                     localVisitees.put(traversalCandidate.vertical, new VerticalInfo(
@@ -434,6 +435,7 @@ public class SearchSpace implements Serializable {
             double errorDiff = error - traversalCandidate.error.getMean();
             this.context.profilingData.errorRmse.addAndGet(errorDiff * errorDiff);
             this.context.profilingData.errorRmseCounter.incrementAndGet();
+            this.context.profilingData.ceilingErrorCalculations.incrementAndGet();
             if (logger.isTraceEnabled()) logger.trace("   Checking candidate... actual error: {}", error);
         }
 
@@ -644,6 +646,7 @@ public class SearchSpace implements Serializable {
 
             // Check and evaluate the candidate.
             double error = strategy.calculateError(allegedMaxNonDep);
+            this.context.profilingData.verifyErrorCalculations.incrementAndGet();
             boolean isNonDep = error > strategy.minNonDependencyError;
             if (logger.isTraceEnabled())
                 logger.trace("* Alleged maximal non-dependency {}: non-dep?: {}, error: {}",
@@ -817,6 +820,7 @@ public class SearchSpace implements Serializable {
                     // In particular, we test if this very node is a dependency itself. This is supposedly not expensive
                     // because we just falsified a parent.
                     double error = strategy.calculateError(minDepCandidate.vertical);
+                    this.context.profilingData.trickleErrorCalculations.incrementAndGet();
                     minDepCandidate = new DependencyCandidate(minDepCandidate.vertical, new ConfidenceInterval(error, error), true);
                     if (error > strategy.minNonDependencyError) break;
                 }
@@ -831,6 +835,7 @@ public class SearchSpace implements Serializable {
         double errorDiff = candidateError - minDepCandidate.error.getMean();
         this.context.profilingData.errorRmse.addAndGet(errorDiff * errorDiff);
         this.context.profilingData.errorRmseCounter.incrementAndGet();
+        if (!minDepCandidate.isExact()) this.context.profilingData.trickleErrorCalculations.incrementAndGet();
         if (candidateError <= strategy.maxDependencyError) {
             // TODO: I think, we don't need to add the dep to the localVisitees, because we won't visit it anymore.
             if (logger.isTraceEnabled())
