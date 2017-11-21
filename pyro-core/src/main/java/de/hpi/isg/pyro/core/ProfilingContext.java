@@ -9,8 +9,11 @@ import org.slf4j.LoggerFactory;
 import java.io.PrintStream;
 import java.io.Serializable;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * This class contains the relevant data to operate Pyro within a JVM.
@@ -33,11 +36,6 @@ public class ProfilingContext extends DependencyConsumer {
      * Caches {@link AgreeSetSample}s.
      */
     final VerticalMap<AgreeSetSample> agreeSetSamples;
-
-    /**
-     * Defines {@link AgreeSetSample}s that should not be cleared.
-     */
-    final Collection<AgreeSetSample> stickyAgreeSetSamples = new LinkedList<>();
 
     /**
      * The {@link ColumnLayoutRelationData} to be profiled.
@@ -110,15 +108,6 @@ public class ProfilingContext extends DependencyConsumer {
                         initialCacheSize, this.agreeSetSamples.size(), elapsedNanos / 1_000_000
                 ));
             });
-
-            // Make sure to always have a cover of correlation providers (i.e., make the GC always spare the initial providers).
-            for (Column column : schema.getColumns()) {
-                // TODO: Create samples in parallel.
-                AgreeSetSample sample = this.createFocusedSample(column, 1d);
-                synchronized (this.stickyAgreeSetSamples) {
-                    this.stickyAgreeSetSamples.add(sample);
-                }
-            }
         } else {
             this.agreeSetSamples = null;
         }
@@ -127,6 +116,23 @@ public class ProfilingContext extends DependencyConsumer {
         this.memoryWatchdog.addListener(System::gc);
 
         this.profilingData.initializationMillis.addAndGet(System.currentTimeMillis() - startMillis);
+    }
+
+    public void createColumnAgreeSetSamples(Function<Runnable, Future<?>> exeutor) {
+        List<Future<?>> futures = new ArrayList<>();
+        for (Column column : this.relationData.getSchema().getColumns()) {
+            futures.add(exeutor.apply(() -> {
+                AgreeSetSample sample = this.createFocusedSample(column, 1d);
+                this.agreeSetSamples.put(column, sample);
+            }));
+        }
+        for (Future<?> future : futures) {
+            try {
+                future.get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 
     /**
@@ -168,21 +174,6 @@ public class ProfilingContext extends DependencyConsumer {
 
             if (sample == null || nextSample.getSamplingRatio() > sample.getSamplingRatio()) {
                 sample = nextSample;
-            }
-        }
-
-        // It seems that the JVM might discard our SoftReferences even though we made the referencee strongly referenced.
-        if (sample == null) {
-            System.out.printf(
-                    "Warning: Could not find any sample for %s. Sticky samples: %s. Found entries: %s.",
-                    focus, this.stickyAgreeSetSamples, correlationProviderEntries
-            );
-            for (AgreeSetSample nextSample : this.stickyAgreeSetSamples) {
-                if (!focus.contains(nextSample.getFocus())) continue;
-
-                if (sample == null || nextSample.getSamplingRatio() > sample.getSamplingRatio()) {
-                    sample = nextSample;
-                }
             }
         }
 
