@@ -7,6 +7,9 @@ import de.hpi.isg.pyro.model.Vertical;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryUsage;
 import java.lang.ref.Reference;
 import java.util.*;
 import java.util.function.Function;
@@ -21,7 +24,9 @@ public class PLICache {
 
     private final RelationData relationData;
 
-    private final VerticalMap<Reference<PositionListIndex>> cache;
+    private final VerticalMap<PositionListIndex> cache;
+
+    private final MemoryWatchdog memoryWatchdog;
 
     private boolean isCacheIntermediatePlis = false;
 
@@ -35,6 +40,23 @@ public class PLICache {
                 new SynchronizedVerticalMap<>(this.relationData.getSchema()) :
                 new VerticalMap<>(this.relationData.getSchema());
         this.referenceCreation = referenceCreation;
+
+        // Set up monitoring for cache clean up.
+        this.memoryWatchdog = new MemoryWatchdog(0.85, 100);
+//        MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
+//        ((NotificationEmitter) memoryMXBean).addNotificationListener(
+//                (notification, handback) -> System.out.printf("Received %s with handback %s.\n", notification, handback),
+//                (NotificationFilter) notification -> true,
+//                this
+//        );
+//        for (MemoryPoolMXBean memoryPoolMXBean : ManagementFactory.getMemoryPoolMXBeans()) {
+//            System.out.printf("We are having a Bean named \"%s\" (\"%s\").\n", memoryPoolMXBean.getName(), memoryPoolMXBean.getType());
+//        }
+//
+//        for (MemoryManagerMXBean bean : ManagementFactory.getMemoryManagerMXBeans()) {
+//            System.out.printf("We are having a Bean named \"%s\".\n", bean.getName());
+//        }
+
     }
 
     /**
@@ -44,9 +66,7 @@ public class PLICache {
      * @return the {@link PositionListIndex} or {@code null} if it is not cached
      */
     public PositionListIndex get(Vertical vertical) {
-        Reference<PositionListIndex> pliRef = this.cache.get(vertical);
-        if (pliRef == null) return null;
-        return pliRef.get();
+        return this.cache.get(vertical);
     }
 
     /**
@@ -60,24 +80,22 @@ public class PLICache {
         if (logger.isDebugEnabled()) logger.debug("PLI for {} requested: ", vertical);
 
         // See if the PLI is cached.
-        PositionListIndex pli = null;
-        Reference<PositionListIndex> pliReference = this.cache.get(vertical);
-        if (pliReference != null && (pli = pliReference.get()) != null) {
+        PositionListIndex pli = this.get(vertical);
+        if (pli != null) {
             if (logger.isDebugEnabled()) logger.debug("Served from PLI cache.");
             return pli;
         }
 
         // Otherwise, look for cached PLIs from which we can construct the requested PLI.
-        ArrayList<Map.Entry<Vertical, Reference<PositionListIndex>>> subsetEntries = this.cache.getSubsetEntries(vertical);
+        ArrayList<Map.Entry<Vertical, PositionListIndex>> subsetEntries = this.cache.getSubsetEntries(vertical);
 
         // Determine the PLI with the smallest extent (and most columns).
         PositionListIndexRank smallestPliRank = null;
         // Greedily take the PLIs with the greatest cover.
         ArrayList<PositionListIndexRank> ranks = new ArrayList<>(subsetEntries.size());
-        for (Map.Entry<Vertical, Reference<PositionListIndex>> subsetEntry : subsetEntries) {
+        for (Map.Entry<Vertical, PositionListIndex> subsetEntry : subsetEntries) {
             Vertical subVertical = subsetEntry.getKey();
-            PositionListIndex subPLI = subsetEntry.getValue().get();
-            if (subPLI == null) continue;
+            PositionListIndex subPLI = subsetEntry.getValue();
             PositionListIndexRank pliRank = new PositionListIndexRank(subVertical, subPLI, subVertical.getArity());
             ranks.add(pliRank);
             if (smallestPliRank == null
@@ -147,13 +165,13 @@ public class PLICache {
                 pli = pli.intersect(operand.pli);
                 // Cache the PLI.
                 if (this.isCacheIntermediatePlis) {
-                    this.cache.put(currentVertical, this.referenceCreation.apply(pli));
+                    this.cache.put(currentVertical, pli);
                 }
             }
         }
         // Cache the PLI.
         if (!this.isCacheIntermediatePlis) {
-            this.cache.put(currentVertical, this.referenceCreation.apply(pli));
+            this.cache.put(currentVertical, pli);
         }
 
         if (logger.isDebugEnabled())
@@ -174,6 +192,12 @@ public class PLICache {
         isCacheIntermediatePlis = cacheIntermediatePlis;
     }
 
+    @Override
+    protected void finalize() throws Throwable {
+        super.finalize();
+        this.memoryWatchdog.stop();
+    }
+
     private static final class PositionListIndexRank {
 
         final Vertical vertical;
@@ -184,6 +208,59 @@ public class PLICache {
             this.vertical = vertical;
             this.pli = pli;
             this.addedArity = initialArity;
+        }
+    }
+
+    private final class MemoryWatchdog implements Runnable {
+
+        boolean keepRunning = true;
+
+        final long sleepMillis;
+
+        final double maxUsageRatio;
+
+        final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
+
+        final Thread thread;
+
+        final Logger logger = LoggerFactory.getLogger(this.getClass());
+
+        private MemoryWatchdog(double maxUsageRatio, long sleepMillis) {
+            this.maxUsageRatio = maxUsageRatio;
+            this.sleepMillis = sleepMillis;
+            this.thread = new Thread(this);
+            this.thread.start();
+        }
+
+        @Override
+        public void run() {
+            while (this.keepRunning) {
+                MemoryUsage heapMemoryUsage = this.memoryMXBean.getHeapMemoryUsage();
+                if (heapMemoryUsage.getUsed() > this.maxUsageRatio * heapMemoryUsage.getMax()) {
+                    int initialCacheSize = cache.size();
+                    long elapsedNanos = System.nanoTime();
+                    cache.shrink(
+                            0.5d,
+                            Comparator.comparingInt(entry -> entry.getKey().getArity()),
+                            entry -> entry.getKey().getArity() > 1
+                    );
+                    elapsedNanos = System.nanoTime() - elapsedNanos;
+                    this.logger.info(String.format("Shrinked PLI cache size from %,d to %,d in %,d ms.",
+                            initialCacheSize, cache.size(), elapsedNanos / 1_000_000
+                    ));
+                }
+                try {
+                    Thread.sleep(this.sleepMillis);
+                } catch (InterruptedException e) {
+                    // Ignore.
+                }
+            }
+            this.logger.info("Terminating...");
+        }
+
+        void stop() {
+            this.keepRunning = false;
+            this.thread.interrupt();
         }
     }
 

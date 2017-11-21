@@ -3,19 +3,17 @@ package de.hpi.isg.pyro.util;
 import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 
 /**
  * This class uses a trie to map {@link Vertical}s to values.
  */
 public class SynchronizedVerticalMap<Value> extends VerticalMap<Value> {
 
-    private final ReadWriteLock lock = new ReentrantReadWriteLock(true);
+    public final ReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     public SynchronizedVerticalMap(RelationSchema relation) {
         super(relation);
@@ -177,6 +175,16 @@ public class SynchronizedVerticalMap<Value> extends VerticalMap<Value> {
         try {
             this.lock.readLock().lock();
             return super.entrySet();
+        } finally {
+            this.lock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public void shrink(double factor, Comparator<Entry<Vertical, Value>> comparator, Predicate<Entry<Vertical, Value>> canRemove) {
+        try {
+            this.lock.readLock().lock();
+            super.shrink(factor, comparator, canRemove);
         } finally {
             this.lock.readLock().unlock();
         }

@@ -8,6 +8,7 @@ import de.hpi.isg.pyro.model.Vertical;
 import java.io.Serializable;
 import java.util.*;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 
 /**
  * This class uses a trie to map {@link Vertical}s to values.
@@ -68,7 +69,6 @@ public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
         Value removedValue;
         if (key instanceof Vertical) {
             removedValue = this.setTrie.remove(((Vertical) key).getColumnIndices(), 0);
-            return removedValue;
         } else if (key instanceof BitSet) {
             removedValue = this.setTrie.remove((BitSet) key, 0);
         } else {
@@ -183,6 +183,35 @@ public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
                 (k, v) -> entrySet.add(new VerticalEntry<>(this.relation.getVertical(k), v))
         );
         return entrySet;
+    }
+
+    /**
+     * Reduce the number of entries in this instance. This method is thought to facilitate cache implementations.
+     *
+     * @param factor     the fraction of entities to retain
+     * @param comparator orders the entries by priority to be removed
+     * @param canRemove  states whether an entry may be removed at all
+     */
+    public void shrink(double factor,
+                       Comparator<Entry<Vertical, Value>> comparator,
+                       Predicate<Entry<Vertical, Value>> canRemove) {
+
+        int size = this.size();
+        PriorityQueue<Entry<Vertical, Value>> keyQueue = new PriorityQueue<>(size, comparator);
+        this.setTrie.traverseEntries(
+                new BitSet(this.relation.getNumColumns()),
+                (k, v) -> {
+                    VerticalEntry<Value> entry = new VerticalEntry<>(this.relation.getVertical(k), v);
+                    if (canRemove.test(entry)) {
+                        keyQueue.add(entry);
+                    }
+                }
+        );
+        int targetSize = (int) (size * factor);
+        while (keyQueue.size() > targetSize) {
+            Vertical key = keyQueue.poll().getKey();
+            this.remove(key);
+        }
     }
 
     private static final class SetTrie<Value> implements Serializable {
