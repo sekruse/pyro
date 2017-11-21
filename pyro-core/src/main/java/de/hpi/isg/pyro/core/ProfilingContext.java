@@ -8,9 +8,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.PrintStream;
 import java.io.Serializable;
-import java.lang.ref.Reference;
-import java.lang.ref.SoftReference;
-import java.lang.ref.WeakReference;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -35,7 +32,7 @@ public class ProfilingContext extends DependencyConsumer {
     /**
      * Caches {@link AgreeSetSample}s.
      */
-    final VerticalMap<Reference<AgreeSetSample>> agreeSetSamples;
+    final VerticalMap<AgreeSetSample> agreeSetSamples;
 
     /**
      * Defines {@link AgreeSetSample}s that should not be cleared.
@@ -57,6 +54,8 @@ public class ProfilingContext extends DependencyConsumer {
      */
     public final ProfilingData profilingData = new ProfilingData();
 
+    public final MemoryWatchdog memoryWatchdog = MemoryWatchdog.start(0.85, 100);
+
     /**
      * Creates a new instance.
      *
@@ -73,23 +72,44 @@ public class ProfilingContext extends DependencyConsumer {
         this.uccConsumer = uccConsumer;
         this.fdConsumer = fdConsumer;
         this.random = this.configuration.seed == null ? new Random() : new Random(this.configuration.seed);
-        this.pliCache = new PLICache(
-                relationData,
-                configuration.parallelism != 1,
-                configuration.isUseWeakReferencesForPlis ? WeakReference::new : SoftReference::new
-        );
+        this.pliCache = new PLICache(relationData, true);
+        this.memoryWatchdog.addListener(() -> {
+            VerticalMap<PositionListIndex> index = this.pliCache.getIndex();
+            int initialCacheSize = index.size();
+            long elapsedNanos = System.nanoTime();
+            index.shrink(
+                    0.5d,
+                    Comparator.comparingInt(entry -> entry.getKey().getArity()),
+                    entry -> entry.getKey().getArity() > 1
+            );
+            elapsedNanos = System.nanoTime() - elapsedNanos;
+            logger.info(String.format("Shrinked PLI cache size from %,d to %,d in %,d ms.",
+                    initialCacheSize, index.size(), elapsedNanos / 1_000_000
+            ));
+        });
 
         if (configuration.sampleSize > 0) {
             // Create the initial samples.
             RelationSchema schema = this.relationData.getSchema();
-            this.agreeSetSamples = configuration.parallelism > 1 ?
-                    new SynchronizedVerticalMap<>(schema) :
-                    new VerticalMap<>(schema);
+            this.agreeSetSamples = new SynchronizedVerticalMap<>(schema);
+            this.memoryWatchdog.addListener(() -> {
+                int initialCacheSize = this.agreeSetSamples.size();
+                long elapsedNanos = System.nanoTime();
+                this.agreeSetSamples.shrink(
+                        0.5d,
+                        Comparator.comparingInt(entry -> entry.getKey().getArity()),
+                        entry -> entry.getKey().getArity() > 1
+                );
+                elapsedNanos = System.nanoTime() - elapsedNanos;
+                logger.info(String.format("Shrinked agree set sample cache size from %,d to %,d in %,d ms.",
+                        initialCacheSize, this.agreeSetSamples.size(), elapsedNanos / 1_000_000
+                ));
+            });
 
             // Make sure to always have a cover of correlation providers (i.e., make the GC always spare the initial providers).
             for (Column column : schema.getColumns()) {
                 // TODO: Create samples in parallel.
-                AgreeSetSample sample = this.createFocusedSample(column, 1d, false);
+                AgreeSetSample sample = this.createFocusedSample(column, 1d);
                 synchronized (this.stickyAgreeSetSamples) {
                     this.stickyAgreeSetSamples.add(sample);
                 }
@@ -97,6 +117,9 @@ public class ProfilingContext extends DependencyConsumer {
         } else {
             this.agreeSetSamples = null;
         }
+
+        // Request garbage collection so that we do not end up clearing the caches while keeping all sorts of short-lived garbage.
+        this.memoryWatchdog.addListener(System::gc);
 
         this.profilingData.initializationMillis.addAndGet(System.currentTimeMillis() - startMillis);
     }
@@ -109,19 +132,6 @@ public class ProfilingContext extends DependencyConsumer {
      * @return the created {@link AgreeSetSample}
      */
     AgreeSetSample createFocusedSample(Vertical focus, double boostFactor) {
-        return this.createFocusedSample(focus, boostFactor, this.configuration.isUseWeakReferencesForSamples);
-    }
-
-    /**
-     * Create and cache an {@link AgreeSetSample}.
-     *
-     * @param focus              the sampling focus
-     * @param boostFactor        the sampling boost (cf. {@link Configuration#sampleSize} and {@link Configuration#sampleBooster})
-     * @param isUseWeakReference whether to use a {@link WeakReference} rather than a {@link SoftReference} to cache
-     *                           the new {@link AgreeSetSample}
-     * @return the created {@link AgreeSetSample}
-     */
-    AgreeSetSample createFocusedSample(Vertical focus, double boostFactor, boolean isUseWeakReference) {
         final long startNanos = System.nanoTime();
         ListAgreeSetSample sample = ListAgreeSetSample.createFocusedFor(
                 this.relationData,
@@ -131,7 +141,7 @@ public class ProfilingContext extends DependencyConsumer {
                 this.random
         );
         if (logger.isDebugEnabled()) logger.debug("Created {} with a boost factor of {}.", sample, boostFactor);
-        this.agreeSetSamples.put(focus, isUseWeakReference ? new WeakReference<>(sample) : new SoftReference<>(sample));
+        this.agreeSetSamples.put(focus, sample);
         this.profilingData.samplingNanos.addAndGet(System.nanoTime() - startNanos);
         this.profilingData.numSamplings.incrementAndGet();
         return sample;
@@ -145,13 +155,13 @@ public class ProfilingContext extends DependencyConsumer {
      * @return the {@link AgreeSetSample}
      */
     public AgreeSetSample getAgreeSetSample(Vertical focus) {
-        ArrayList<Map.Entry<Vertical, Reference<AgreeSetSample>>> correlationProviderEntries =
+        ArrayList<Map.Entry<Vertical, AgreeSetSample>> correlationProviderEntries =
                 this.agreeSetSamples.getSubsetEntries(focus);
         AgreeSetSample sample = null;
-        for (Map.Entry<Vertical, Reference<AgreeSetSample>> correlationProviderEntry : correlationProviderEntries) {
-            AgreeSetSample nextSample = correlationProviderEntry.getValue().get();
+        for (Map.Entry<Vertical, AgreeSetSample> correlationProviderEntry : correlationProviderEntries) {
+            AgreeSetSample nextSample = correlationProviderEntry.getValue();
 
-            if (sample == null || nextSample != null && nextSample.getSamplingRatio() > sample.getSamplingRatio()) {
+            if (sample == null || nextSample.getSamplingRatio() > sample.getSamplingRatio()) {
                 sample = nextSample;
             }
         }
@@ -191,6 +201,13 @@ public class ProfilingContext extends DependencyConsumer {
      */
     public RelationSchema getSchema() {
         return this.relationData.getSchema();
+    }
+
+
+    @Override
+    protected void finalize() throws Throwable {
+        super.finalize();
+        this.memoryWatchdog.stop();
     }
 
     /**

@@ -183,10 +183,10 @@ public class SynchronizedVerticalMap<Value> extends VerticalMap<Value> {
     @Override
     public void shrink(double factor, Comparator<Entry<Vertical, Value>> comparator, Predicate<Entry<Vertical, Value>> canRemove) {
         try {
-            this.lock.readLock().lock();
+            this.lock.writeLock().lock();
             super.shrink(factor, comparator, canRemove);
         } finally {
-            this.lock.readLock().unlock();
+            this.lock.writeLock().unlock();
         }
     }
 }

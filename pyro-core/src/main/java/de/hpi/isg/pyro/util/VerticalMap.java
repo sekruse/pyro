@@ -208,7 +208,7 @@ public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
                 }
         );
         int targetSize = (int) (size * factor);
-        while (keyQueue.size() > targetSize) {
+        while (!keyQueue.isEmpty() && this.size() > targetSize) {
             Vertical key = keyQueue.poll().getKey();
             this.remove(key);
         }
