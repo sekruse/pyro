@@ -46,17 +46,18 @@ public class FdG1Strategy extends DependencyStrategy {
     }
 
     @Override
-    double calculateError(Vertical fdCandidate) {
+    double calculateError(Vertical lhs) {
         final long startNanos = System.nanoTime();
         final double error;
         // Special case: Check 0-ary FD.
-        if (fdCandidate.getArity() == 0) {
+        if (lhs.getArity() == 0) {
             PositionListIndex rhsPli = this.context.pliCache.get(this.rhs);
             assert rhsPli != null;
             error = this.calculateG1(rhsPli.getNip());
         } else {
-            PositionListIndex pli = this.context.pliCache.getOrCreateFor(fdCandidate);
-            error = this.calculateG1(pli);
+            PositionListIndex lhsPli = this.context.pliCache.getOrCreateFor(lhs);
+            PositionListIndex jointPli = this.context.pliCache.get(lhs.union(rhs));
+            error = jointPli == null ? this.calculateG1(lhsPli) : this.calculateG1(lhsPli.getNepAsLong() - jointPli.getNepAsLong());
         }
 
         this.context.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
