@@ -68,6 +68,11 @@ public class Configuration extends AbstractPFDConfiguration {
     @MetanomeProperty
     public double cachingProbability = 0.5d;
 
+    @Parameter(names = "--naryIntersectionSize", description = "number of PLIs that should be intersected in a single operation")
+    @MetanomeProperty
+    public int naryIntersectionSize = 4;
+
+
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Miscellaneous settings.
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -3,7 +3,10 @@ package de.hpi.isg.pyro.util;
 import de.hpi.isg.pyro.model.Column;
 import de.hpi.isg.pyro.model.RelationData;
 import de.hpi.isg.pyro.model.RelationSchema;
+import de.hpi.isg.pyro.model.Vertical;
 import it.unimi.dsi.fastutil.ints.*;
+import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 
 import java.util.*;
@@ -175,6 +178,12 @@ public class PositionListIndex {
         return result;
     }
 
+    /**
+     *
+     * NB: Null clusters are not supported.
+     * @param probingTable
+     * @return
+     */
     public PositionListIndex probe(int[] probingTable) {
         assert this.relationSize == probingTable.length;
 
@@ -350,6 +359,79 @@ public class PositionListIndex {
         double expectedGain = totalGain / this.getMaximumNip();
         double expectedConditionalGain = numEffectiveTuplePairs == 0 ? 0 : totalGain / (double) numEffectiveTuplePairs;
         return new Volatility(expectedGain, expectedConditionalGain, numCommonEPs, numGainTuples, numLossTuples, numDrawTuples);
+    }
+
+    public PositionListIndex probeAll(Vertical probingColumns, RelationData relationData) {
+        assert this.relationSize == relationData.getNumRows();
+
+        // Prepare the new index.
+        ArrayList<IntArrayList> newIndex = new ArrayList<>();
+        int newSize = 0;
+        double newKeyGap = 0d;
+        long newNep = 0;
+
+        // Prepare a partial index to do the probing on each cluster.
+        Object2ObjectMap<IntArrayList, IntArrayList> partialIndex = new Object2ObjectOpenHashMap<>();
+        // TODO: Support null cluster.
+        final IntArrayList nullCluster = null;
+        IntArrayList probe = new IntArrayList(probingColumns.getArity());
+
+        // Do the actual probing cluster by cluster.
+        for (IntArrayList cluster : this.index) {
+            for (IntIterator iterator = cluster.iterator(); iterator.hasNext(); ) {
+                // Probe the position.
+                final int position = iterator.nextInt();
+                if (!takeProbe(position, relationData, probingColumns, probe)) {
+                    // Skip singleton values.
+                    continue;
+                }
+
+                // Insert the probed position into the partial index.
+                IntArrayList newCluster = partialIndex.get(probe);
+                if (newCluster == null) {
+                    partialIndex.put(probe, newCluster = new IntArrayList(4));
+                    // Note that we explicitly use small initial cluster sizes, as (i) we otherwise might run into
+                    // memory problems, and (ii) the amortized complexity of enlarging arrays is O(n).
+                    probe = new IntArrayList(probe.size());
+                } else {
+                    probe.clear();
+                }
+                newCluster.add(position);
+            }
+
+            // Copy the partial index into the new PLI.
+            for (IntArrayList newCluster : partialIndex.values()) {
+                // Skip singleton clusters.
+                if (newCluster.size() == 1) continue;
+
+                newCluster.trim();
+                newSize += newCluster.size();
+                newKeyGap += newCluster.size() * Math.log(newCluster.size());
+                newNep += calculateNep(newCluster.size());
+                newIndex.add(newCluster);
+            }
+            partialIndex.clear();
+        }
+
+        double newEntropy = Math.log(this.relationSize) - newKeyGap / this.relationSize;
+
+        sortClusters(newIndex);
+        newIndex.trimToSize();
+
+        return new PositionListIndex(newIndex, nullCluster, newSize, newEntropy, newNep, this.relationSize, this.relationSize);
+
+    }
+
+    private boolean takeProbe(int position, RelationData relationData, Vertical probingColumns, IntArrayList probe) {
+        final BitSet probingIndices = probingColumns.getColumnIndices();
+        for (int index = probingIndices.nextSetBit(0);
+             index != -1;
+             index = probingIndices.nextSetBit(index + 1)) {
+            final int value = relationData.getColumnData(index).getProbingTableValue(position);
+            if (value == singletonValueId) return false;
+            probe.add(value);
+        }
+        return true;
     }
 
     public class Volatility {

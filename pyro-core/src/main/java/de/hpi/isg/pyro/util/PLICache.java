@@ -17,6 +17,8 @@ public class PLICache {
 
     private static final Logger logger = LoggerFactory.getLogger(PLICache.class);
 
+    private final int naryIntersectionSize;
+
     private final RelationData relationData;
 
     private final VerticalMap<PositionListIndex> index;
@@ -25,7 +27,8 @@ public class PLICache {
 
     public PLICache(RelationData relationData,
                     boolean isSynchronized,
-                    double cachingProbability) {
+                    double cachingProbability,
+                    int naryIntersectionSize) {
         this.relationData = relationData;
         this.index = isSynchronized ?
                 new SynchronizedVerticalMap<>(this.relationData.getSchema()) :
@@ -34,6 +37,7 @@ public class PLICache {
             this.index.put(column, relationData.getColumnData(column.getIndex()).getPositionListIndex());
         }
         this.cachingProbability = cachingProbability;
+        this.naryIntersectionSize = naryIntersectionSize;
     }
 
     /**
@@ -81,6 +85,8 @@ public class PLICache {
                 smallestPliRank = pliRank;
             }
         }
+        assert smallestPliRank != null;
+
         LinkedList<PositionListIndexRank> operands = new LinkedList<>();
         BitSet cover = new BitSet(this.relationData.getNumColumns()), coverTester = new BitSet(this.relationData.getNumColumns());
         if (smallestPliRank != null) {
@@ -133,17 +139,26 @@ public class PLICache {
 
         // Intersect all the PLIs.
         Random random = new Random();
-        Vertical currentVertical = null;
-        for (PositionListIndexRank operand : operands) {
-            if (pli == null) {
-                currentVertical = operand.vertical;
-                pli = operand.pli;
-            } else {
-                currentVertical = currentVertical.union(operand.vertical);
-                pli = pli.intersect(operand.pli);
-                // Cache the PLI.
-                if (random.nextDouble() < this.cachingProbability) {
-                    this.index.put(currentVertical, pli);
+        if (operands.size() >= this.naryIntersectionSize) {
+            PositionListIndexRank basePliRank = operands.get(0);
+            pli = basePliRank.pli.probeAll(vertical.without(basePliRank.vertical), relationData);
+            // Cache the PLI.
+            if (random.nextDouble() < this.cachingProbability) {
+                this.index.put(vertical, pli);
+            }
+        } else {
+            Vertical currentVertical = null;
+            for (PositionListIndexRank operand : operands) {
+                if (pli == null) {
+                    currentVertical = operand.vertical;
+                    pli = operand.pli;
+                } else {
+                    currentVertical = currentVertical.union(operand.vertical);
+                    pli = pli.intersect(operand.pli);
+                    // Cache the PLI.
+                    if (random.nextDouble() < this.cachingProbability) {
+                        this.index.put(currentVertical, pli);
+                    }
                 }
             }
         }

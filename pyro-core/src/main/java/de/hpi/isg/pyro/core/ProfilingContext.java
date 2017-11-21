@@ -72,7 +72,12 @@ public class ProfilingContext extends DependencyConsumer {
         this.uccConsumer = uccConsumer;
         this.fdConsumer = fdConsumer;
         this.random = this.configuration.seed == null ? new Random() : new Random(this.configuration.seed);
-        this.pliCache = new PLICache(relationData, true, this.configuration.cachingProbability);
+        this.pliCache = new PLICache(
+                relationData,
+                true,
+                this.configuration.cachingProbability,
+                this.configuration.naryIntersectionSize
+        );
         this.memoryWatchdog.addListener(() -> {
             VerticalMap<PositionListIndex> index = this.pliCache.getIndex();
             int initialCacheSize = index.size();
