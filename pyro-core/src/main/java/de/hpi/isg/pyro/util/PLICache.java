@@ -82,7 +82,7 @@ public class PLICache {
             ranks.add(pliRank);
             if (smallestPliRank == null
                     || smallestPliRank.pli.size() > pliRank.pli.size()
-                    || smallestPliRank.pli.size() == pliRank.pli.size() && smallestPliRank.rank < pliRank.rank) {
+                    || smallestPliRank.pli.size() == pliRank.pli.size() && smallestPliRank.addedArity < pliRank.addedArity) {
                 smallestPliRank = pliRank;
             }
         }
@@ -100,15 +100,15 @@ public class PLICache {
                     coverTester.clear();
                     coverTester.or(rank.vertical.getColumnIndices());
                     coverTester.andNot(cover);
-                    rank.rank = coverTester.cardinality();
-                    if (rank.rank < 2) {
+                    rank.addedArity = coverTester.cardinality();
+                    if (rank.addedArity < 2) {
                         iterator.remove();
                         continue;
                     }
 
                     if (bestRank == null
-                            || bestRank.rank < rank.rank
-                            || (bestRank.rank == rank.rank && bestRank.pli.size() > rank.pli.size())) {
+                            || bestRank.addedArity < rank.addedArity
+                            || (bestRank.addedArity == rank.addedArity && bestRank.pli.size() > rank.pli.size())) {
                         bestRank = rank;
                     }
                 }
@@ -176,16 +176,14 @@ public class PLICache {
 
     private static final class PositionListIndexRank {
 
-        static Comparator<PositionListIndexRank> descendingComparator = (r1, r2) -> Integer.compare(r2.rank, r1.rank);
-
         final Vertical vertical;
         final PositionListIndex pli;
-        int rank;
+        int addedArity;
 
-        PositionListIndexRank(Vertical vertical, PositionListIndex pli, int initialRank) {
+        PositionListIndexRank(Vertical vertical, PositionListIndex pli, int initialArity) {
             this.vertical = vertical;
             this.pli = pli;
-            this.rank = initialRank;
+            this.addedArity = initialArity;
         }
     }
 
