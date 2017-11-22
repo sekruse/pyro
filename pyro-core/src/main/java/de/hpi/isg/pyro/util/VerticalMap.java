@@ -8,6 +8,7 @@ import de.hpi.isg.pyro.model.Vertical;
 import java.io.Serializable;
 import java.util.*;
 import java.util.function.BiConsumer;
+import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 
 /**
@@ -105,9 +106,45 @@ public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
                 vertical.getColumnIndices(),
                 0,
                 new BitSet(this.relation.getNumColumns()),
-                (k, v) -> entries.add(new VerticalEntry<>(this.relation.getVertical(k), v))
+                (k, v) -> {
+                    entries.add(new VerticalEntry<>(this.relation.getVertical(k), v));
+                    return true;
+                }
         );
         return entries;
+    }
+
+    public Entry<Vertical, Value> getAnySubsetEntry(Vertical vertical) {
+        ArrayList<Entry<Vertical, Value>> entries = new ArrayList<>(1);
+        this.setTrie.collectSubsetKeys(
+                vertical.getColumnIndices(),
+                0,
+                new BitSet(this.relation.getNumColumns()),
+                (k, v) -> {
+                    entries.add(new VerticalEntry<>(this.relation.getVertical(k), v));
+                    return false;
+                }
+        );
+        return entries.isEmpty() ? null : entries.get(0);
+    }
+
+    public Entry<Vertical, Value> getAnySubsetEntry(Vertical vertical, BiPredicate<Vertical, Value> condition) {
+        ArrayList<Entry<Vertical, Value>> entries = new ArrayList<>(1);
+        this.setTrie.collectSubsetKeys(
+                vertical.getColumnIndices(),
+                0,
+                new BitSet(this.relation.getNumColumns()),
+                (k, v) -> {
+                    Vertical kv = this.relation.getVertical(k);
+                    if (condition.test(kv, v)) {
+                        entries.add(new VerticalEntry<>(vertical, v));
+                        return false;
+                    } else {
+                        return true;
+                    }
+                }
+        );
+        return entries.isEmpty() ? null : entries.get(0);
     }
 
     public ArrayList<Entry<Vertical, Value>> getSupersetEntries(Vertical vertical) {
@@ -116,9 +153,45 @@ public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
                 vertical.getColumnIndices(),
                 0,
                 new BitSet(this.relation.getNumColumns()),
-                (k, v) -> entries.add(new VerticalEntry<>(this.relation.getVertical(k), v))
+                (k, v) -> {
+                    entries.add(new VerticalEntry<>(this.relation.getVertical(k), v));
+                    return true;
+                }
         );
         return entries;
+    }
+
+    public Entry<Vertical, Value> getAnySupersetEntry(Vertical vertical) {
+        ArrayList<Entry<Vertical, Value>> entries = new ArrayList<>(1);
+        this.setTrie.collectSupersetKeys(
+                vertical.getColumnIndices(),
+                0,
+                new BitSet(this.relation.getNumColumns()),
+                (k, v) -> {
+                    entries.add(new VerticalEntry<>(this.relation.getVertical(k), v));
+                    return false;
+                }
+        );
+        return entries.isEmpty() ? null : entries.get(0);
+    }
+
+    public Entry<Vertical, Value> getAnySupersetEntry(Vertical vertical, BiPredicate<Vertical, Value> condition) {
+        ArrayList<Entry<Vertical, Value>> entries = new ArrayList<>(1);
+        this.setTrie.collectSupersetKeys(
+                vertical.getColumnIndices(),
+                0,
+                new BitSet(this.relation.getNumColumns()),
+                (k, v) -> {
+                    Vertical kv = this.relation.getVertical(k);
+                    if (condition.test(kv, v)) {
+                        entries.add(new VerticalEntry<>(vertical, v));
+                        return false;
+                    } else {
+                        return true;
+                    }
+                }
+        );
+        return entries.isEmpty() ? null : entries.get(0);
     }
 
 
@@ -369,23 +442,24 @@ public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
          * @param key       a {@link BitSet}, which serves as key
          * @param nextBit   the next bit to consider (or any unset bit before this bit)
          * @param subsetKey keeps track of the already matched bits from the {@code key}
-         * @param collector collects all the subset keys
+         * @param collector collects all the subset keys; returns {@code false} if the traversal should stop
+         * @return whether the traversal should be stopped (for recursive calls)
          */
-        public void collectSubsetKeys(BitSet key, int nextBit, BitSet subsetKey, BiConsumer<BitSet, Value> collector) {
+        public boolean collectSubsetKeys(BitSet key, int nextBit, BitSet subsetKey, BiPredicate<BitSet, Value> collector) {
+            if (this.value != null) {
+                if (!collector.test((BitSet) subsetKey.clone(), this.value)) return false;
+            }
             nextBit = key.nextSetBit(nextBit);
             while (nextBit != -1) {
                 SetTrie<Value> subtrie = this.subtrie(nextBit);
                 if (subtrie != null) {
                     subsetKey.set(nextBit);
-                    subtrie.collectSubsetKeys(key, nextBit + 1, subsetKey, collector);
+                    if (!subtrie.collectSubsetKeys(key, nextBit + 1, subsetKey, collector)) return false;
                     subsetKey.clear(nextBit);
                 }
                 nextBit = key.nextSetBit(nextBit + 1);
             }
-
-            if (this.value != null) {
-                collector.accept((BitSet) subsetKey.clone(), this.value);
-            }
+            return true;
         }
 
         /**
@@ -394,20 +468,21 @@ public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
          * @param key         a {@link BitSet}, which serves as key
          * @param nextBit     the next bit to consider
          * @param supersetKey keeps track of the already used columns
-         * @param collector   collects all the subset keys
+         * @param collector   collects all the subset keys; returns {@code false} if tree traversal should stop
+         * @return whether the traversal should be stopped (for recursive calls)
          */
-        public void collectSupersetKeys(BitSet key, int nextBit, BitSet supersetKey, BiConsumer<BitSet, Value> collector) {
+        public boolean collectSupersetKeys(BitSet key, int nextBit, BitSet supersetKey, BiPredicate<BitSet, Value> collector) {
             nextBit = nextBit == -1 ? nextBit : key.nextSetBit(nextBit);
             if (nextBit == -1) {
                 // In this case, we already have a superset of the key. We have to do full traversal.
                 if (this.value != null) {
-                    collector.accept((BitSet) supersetKey.clone(), this.value);
+                    if (!collector.test((BitSet) supersetKey.clone(), this.value)) return false;
                 }
                 for (int i = this.offset; i < this.dimension; i++) {
                     SetTrie<Value> subtrie = this.subtrie(i);
                     if (subtrie != null) {
                         supersetKey.set(i);
-                        subtrie.collectSupersetKeys(key, nextBit, supersetKey, collector);
+                        if (!subtrie.collectSupersetKeys(key, nextBit, supersetKey, collector)) return false;
                         supersetKey.clear(i);
                     }
                 }
@@ -419,7 +494,7 @@ public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
                     SetTrie<Value> subtrie = this.subtrie(i);
                     if (subtrie != null) {
                         supersetKey.set(i);
-                        subtrie.collectSupersetKeys(key, nextBit, supersetKey, collector);
+                        if (!subtrie.collectSupersetKeys(key, nextBit, supersetKey, collector)) return false;
                         supersetKey.clear(i);
                     }
                 }
@@ -429,10 +504,12 @@ public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
                 SetTrie<Value> subtrie = this.subtrie(nextBit);
                 if (subtrie != null) {
                     supersetKey.set(nextBit);
-                    subtrie.collectSupersetKeys(key, nextBit + 1, supersetKey, collector);
+                    if (!subtrie.collectSupersetKeys(key, nextBit + 1, supersetKey, collector)) return false;
                     supersetKey.clear(nextBit);
                 }
             }
+
+            return true;
         }
 
         /**

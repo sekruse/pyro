@@ -150,28 +150,45 @@ public class RelationSchema implements Serializable {
             Predicate<Vertical> pruningFunction,
             ProfilingContext.ProfilingData profilingData) {
 
-        long startNanos = System.nanoTime();
+        long _startNanos = System.nanoTime();
+        int _intermediateHittingSets = 0;
 
         List<Vertical> sortedVerticals = new ArrayList<>(verticals);
         sortedVerticals.sort(Comparator.comparing(Vertical::getArity).reversed());
-        VerticalMap<Vertical> consolidatedVerticals = new VerticalMap<>(this);
+        VerticalMap<Vertical> consolidatedInvertedVerticals = new VerticalMap<>(this);
 
         VerticalMap<Vertical> hittingSet = new VerticalMap<>(this);
         hittingSet.put(this.emptyVertical, this.emptyVertical);
 
+        long _prepareNanos = System.nanoTime() - _startNanos;
+        long _checkNanos = 0L, _removeNanos = 0L, _updateNanos = 0L, _pruningNanos = 0L;
+
         // Now, continuously refine these escaped LHS.
         for (Vertical vertical : sortedVerticals) {
-            if (!consolidatedVerticals.getSubsetEntries(vertical).isEmpty()) continue;
-            consolidatedVerticals.put(vertical, vertical);
+            long _verticalStartNanos = System.nanoTime();
+
+            // We can skip any vertical whose supersets we already operated on.
+            Vertical invertedVertical = vertical.invert();
+            if (consolidatedInvertedVerticals.getAnySubsetEntry(invertedVertical) != null) {
+                _checkNanos = System.nanoTime() - _verticalStartNanos;
+                continue;
+            }
+            consolidatedInvertedVerticals.put(invertedVertical, invertedVertical);
+
+            _checkNanos += System.nanoTime() - _verticalStartNanos;
+            long _removeStartNanos = System.nanoTime();
 
             // All hitting set member that are disjoint from the vertical are invalid.
-            ArrayList<Vertical> invalidHittingSetMembers = hittingSet.getSubsetKeys(vertical.invert());
+            ArrayList<Vertical> invalidHittingSetMembers = hittingSet.getSubsetKeys(invertedVertical);
             invalidHittingSetMembers.sort(Comparator.comparing(Vertical::getArity));
 
             // Remove the invalid hitting set members.
             for (Vertical invalidHittingSetMember : invalidHittingSetMembers) {
                 hittingSet.remove(invalidHittingSetMember);
             }
+
+            _removeNanos += System.nanoTime() - _removeStartNanos;
+            long _updateStartNanos = System.nanoTime();
 
             // Add corrected hitting set members.
             for (Vertical invalidMember : invalidHittingSetMembers) {
@@ -183,30 +200,50 @@ public class RelationSchema implements Serializable {
                     Vertical correctedMember = invalidMember.union(correctiveColumn);
 
                     // This way, we will never add non-minimal members, because our invalid members are sorted.
-                    if (hittingSet.getSubsetEntries(correctedMember).isEmpty()
-                            && (pruningFunction == null || !pruningFunction.test(correctedMember))) {
-                        hittingSet.put(correctedMember, correctedMember);
+                    if (hittingSet.getAnySubsetEntry(correctedMember) == null) {
+                        _intermediateHittingSets++;
+                        boolean isPruned = false;
+                        if (pruningFunction != null) {
+                            long _pruningStartNanos = System.nanoTime();
+                            isPruned = pruningFunction.test(correctedMember);
+                            _pruningNanos += System.nanoTime() - _pruningStartNanos;
+                        }
+                        if (!isPruned) hittingSet.put(correctedMember, correctedMember);
                     }
                 }
-                hittingSet.remove(invalidMember);
             }
+            _updateNanos += System.nanoTime() - _updateStartNanos;
+
+            if (hittingSet.isEmpty()) break;
         }
 
-        long elapsedNanos = System.nanoTime() - startNanos;
+        long elapsedNanos = System.nanoTime() - _startNanos;
         profilingData.hittingSetNanos.addAndGet(elapsedNanos);
         profilingData.numHittingSets.incrementAndGet();
 
         // Warn if a hitting set calculation took very long.
-        if (elapsedNanos > 1e7) { // 10 ms
-            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
-            StackTraceElement caller = stackTrace[3];
+        if (elapsedNanos > 1e8) { // 100 ms
             if (this.logger.isWarnEnabled()) {
+                StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
                 this.logger.warn(String.format(
-                        "Hitting set calculation with %,d input and %,d output verticals took %,d ms (called from: %s).",
+                        "Hitting set calculation with %,d (%,d) input and %,d output verticals took %,d ms (called by %s):\n" +
+                                "* Preparation:             %,5d ms\n" +
+                                "* Check vertical:          %,5d ms\n" +
+                                "* Remove old hitting sets: %,5d ms\n" +
+                                "* Update hitting sets:     %,5d ms\n" +
+                                "* Test for pruning:        %,5d ms\n" +
+                                "* Intermediate solutions:  %,5d #",
                         verticals.size(),
+                        consolidatedInvertedVerticals.size(),
                         hittingSet.size(),
                         elapsedNanos / 1_000_000L,
-                        caller
+                        stackTrace[2],
+                        _prepareNanos / 1_000_000L,
+                        _checkNanos / 1_000_000L,
+                        _removeNanos / 1_000_000L,
+                        _updateNanos / 1_000_000L,
+                        _pruningNanos / 1_000_000L,
+                        _intermediateHittingSets
                 ));
             }
         }

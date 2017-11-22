@@ -238,7 +238,7 @@ public class SearchSpace implements Serializable {
                 invertedPruningSupersets,
                 hittingSetCandidate -> {
                     // Check if the candidate is within the scope.
-                    if (this.scope != null && this.scope.getSupersetEntries(hittingSetCandidate).isEmpty()) {
+                    if (this.scope != null && this.scope.getAnySupersetEntry(hittingSetCandidate) == null) {
                         return true;
                     }
 
@@ -251,7 +251,7 @@ public class SearchSpace implements Serializable {
                     }
 
                     // Check if the candidate is covered by an existing seed.
-                    if (!this.launchPadIndex.getSubsetEntries(launchPadCandidate).isEmpty()) {
+                    if (this.launchPadIndex.getAnySubsetEntry(launchPadCandidate) != null) {
                         return true;
                     }
 
@@ -921,17 +921,11 @@ public class SearchSpace implements Serializable {
     }
 
     private static boolean isImpliedByMinDep(Vertical vertical, VerticalMap<VerticalInfo> verticalInfos) {
-        for (Map.Entry<Vertical, VerticalInfo> entry : verticalInfos.getSubsetEntries(vertical)) {
-            if (entry.getValue().isDependency && entry.getValue().isExtremal) return true;
-        }
-        return false;
+        return verticalInfos.getAnySubsetEntry(vertical, (v, info) -> info.isDependency && info.isExtremal) != null;
     }
 
     private static boolean isKnownNonDependency(Vertical vertical, VerticalMap<VerticalInfo> verticalInfos) {
-        for (Map.Entry<Vertical, VerticalInfo> entry : verticalInfos.getSupersetEntries(vertical)) {
-            if (!entry.getValue().isDependency) return true;
-        }
-        return false;
+        return verticalInfos.getAnySupersetEntry(vertical, (v, info) -> !info.isDependency) != null;
     }
 
     /**
