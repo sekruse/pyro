@@ -12,6 +12,7 @@ import de.hpi.isg.pyro.model.ColumnLayoutRelationData;
 import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger;
 import de.hpi.isg.pyro.util.Parallel;
+import de.hpi.isg.pyro.util.User;
 import de.metanome.algorithm_integration.AlgorithmConfigurationException;
 import de.metanome.algorithm_integration.AlgorithmExecutionException;
 import de.metanome.algorithm_integration.algorithm_types.*;
@@ -58,6 +59,10 @@ public class Pyro
 
     @Override
     public void execute() throws AlgorithmExecutionException {
+        if (this.configuration.isInitialPause) {
+            User.prompt("Press Enter to start...");
+        }
+
         final long initializationStartMillis = System.currentTimeMillis();
         if (!this.configuration.isFindFds && !this.configuration.isFindKeys) {
             throw new AlgorithmExecutionException("Told to find neither FDs nor UCCs.");
