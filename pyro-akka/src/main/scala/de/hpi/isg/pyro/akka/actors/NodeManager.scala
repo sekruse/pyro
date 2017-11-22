@@ -6,18 +6,19 @@ import java.util.concurrent.atomic.AtomicInteger
 import akka.actor.{Actor, ActorLogging, ActorRef, DeadLetter, Props, SupervisorStrategy}
 import akka.remote.AssociationErrorEvent
 import akka.routing.SmallestMailboxPool
-import de.hpi.isg.pyro.akka.algorithms.Pyro.{HdfsInputMethod, InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
 import de.hpi.isg.pyro.akka.actors.Collector.{DiscoveredFD, DiscoveredUCC}
 import de.hpi.isg.pyro.akka.actors.Controller._
 import de.hpi.isg.pyro.akka.actors.NodeManager._
 import de.hpi.isg.pyro.akka.actors.Worker.DiscoveryTask
+import de.hpi.isg.pyro.akka.algorithms.Pyro.{HdfsInputMethod, InputMethod, LocalFileInputMethod, RelationalInputGeneratorInputMethod}
 import de.hpi.isg.pyro.akka.utils.AkkaUtils
-import de.hpi.isg.pyro.akka.utils.JavaScalaCompatibility._
 import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
 import de.hpi.isg.pyro.model.{ColumnLayoutRelationData, PartialFD, PartialKey}
-import de.hpi.isg.pyro.util.HdfsInputGenerator
+import de.hpi.isg.pyro.util.{HdfsInputGenerator, Parallel}
 import de.metanome.algorithm_integration.input.RelationalInputGenerator
 import de.metanome.backend.input.file.DefaultFileInputGenerator
+import de.hpi.isg.pyro.akka.utils.JavaScalaCompatibility._
+
 
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -98,7 +99,8 @@ class NodeManager(controller: ActorRef,
           ColumnLayoutRelationData.createFrom(inputGenerator,
             configuration.isNullEqualNull,
             configuration.maxCols,
-            configuration.maxRows
+            configuration.maxRows,
+            Parallel.threadLocalExecutor
           )
 
         case LocalFileInputMethod(inputPath, csvSettings) =>
@@ -107,7 +109,8 @@ class NodeManager(controller: ActorRef,
           ColumnLayoutRelationData.createFrom(inputGenerator,
             configuration.isNullEqualNull,
             configuration.maxCols,
-            configuration.maxRows
+            configuration.maxRows,
+            Parallel.threadLocalExecutor
           )
 
         case HdfsInputMethod(inputUrl, csvSettings) =>
@@ -117,7 +120,8 @@ class NodeManager(controller: ActorRef,
           ColumnLayoutRelationData.createFrom(inputGenerator,
             configuration.isNullEqualNull,
             configuration.maxCols,
-            configuration.maxRows
+            configuration.maxRows,
+            Parallel.threadLocalExecutor
           )
 
         case other =>
@@ -209,7 +213,8 @@ class NodeManager(controller: ActorRef,
       (fd: PartialFD) => {
         collector ! DiscoveredFD(fd)
         numDiscoveredDependencies.incrementAndGet()
-      }
+      },
+      Parallel.threadLocalExecutor
     )
   }
 

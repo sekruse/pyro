@@ -11,6 +11,7 @@ import de.hpi.isg.pyro.model.Column;
 import de.hpi.isg.pyro.model.ColumnLayoutRelationData;
 import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger;
+import de.hpi.isg.pyro.util.Parallel;
 import de.metanome.algorithm_integration.AlgorithmConfigurationException;
 import de.metanome.algorithm_integration.AlgorithmExecutionException;
 import de.metanome.algorithm_integration.algorithm_types.*;
@@ -27,10 +28,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 /**
  * This is an implementation of the Pyro algorithm without distributed computations.
@@ -63,70 +62,61 @@ public class Pyro
         if (!this.configuration.isFindFds && !this.configuration.isFindKeys) {
             throw new AlgorithmExecutionException("Told to find neither FDs nor UCCs.");
         }
-        this.logger.info("Loading relation...");
-        ColumnLayoutRelationData relationData = ColumnLayoutRelationData.createFrom(
-                this.fileInputGenerator,
-                configuration.isNullEqualNull,
-                configuration.maxCols,
-                configuration.maxRows
-        );
-        RelationSchema schema = relationData.getSchema();
 
+        // Prepare for parallel execution.
         int parallelism = this.configuration.parallelism > 0 ?
                 Math.min(this.configuration.parallelism, Runtime.getRuntime().availableProcessors()) :
                 Runtime.getRuntime().availableProcessors();
         System.out.printf("Starting fixed thread pool with %d threads.\n", parallelism);
-        ExecutorService executorService = Executors.newFixedThreadPool(parallelism);
+        ExecutorService executorService = parallelism != 1 ?
+                Executors.newFixedThreadPool(parallelism) :
+                null;
+        Parallel.Executor executor = executorService == null ? Parallel.threadLocalExecutor : executorService::submit;
+        ProfilingContext profilingContext = null;
 
-        // Prepare the profiling:
-        // Profiling context.
-        ProfilingContext profilingContext = new ProfilingContext(
-                this.configuration,
-                relationData,
-                this.uccConsumer,
-                this.fdConsumer
-        );
-        profilingContext.createColumnAgreeSetSamples(executorService::submit);
+        try {
+            this.logger.info("Loading relation...");
+            ColumnLayoutRelationData relationData = ColumnLayoutRelationData.createFrom(
+                    this.fileInputGenerator,
+                    configuration.isNullEqualNull,
+                    configuration.maxCols,
+                    configuration.maxRows,
+                    executor
+            );
+            RelationSchema schema = relationData.getSchema();
 
-        // Launchpad order.
-        Comparator<DependencyCandidate> launchpadOrder;
-        switch (this.configuration.launchpadOrder) {
-            case "arity":
-                launchpadOrder = DependencyCandidate.fullArityErrorComparator;
-                break;
-            case "error":
-                launchpadOrder = DependencyCandidate.fullErrorArityComparator;
-                break;
-            default:
-                throw new AlgorithmExecutionException("Unknown comparator type.");
-        }
 
-        // Search spaces.
-        Object2IntOpenHashMap<SearchSpace> searchSpaceCounters = new Object2IntOpenHashMap<>();
-        int nextId = 0;
-        if (configuration.isFindKeys) {
-            DependencyStrategy strategy;
-            switch (configuration.uccErrorMeasure) {
-                case "g1prime":
-                    strategy = new KeyG1Strategy(
-                            configuration.maxUccError,
-                            configuration.errorDev
-                    );
+            // Prepare the profiling:
+            // Profiling context.
+            profilingContext = new ProfilingContext(
+                    this.configuration,
+                    relationData,
+                    this.uccConsumer,
+                    this.fdConsumer,
+                    executor
+            );
+
+            // Launchpad order.
+            Comparator<DependencyCandidate> launchpadOrder;
+            switch (this.configuration.launchpadOrder) {
+                case "arity":
+                    launchpadOrder = DependencyCandidate.fullArityErrorComparator;
+                    break;
+                case "error":
+                    launchpadOrder = DependencyCandidate.fullErrorArityComparator;
                     break;
                 default:
-                    throw new AlgorithmExecutionException("Unknown key error measure.");
-
+                    throw new AlgorithmExecutionException("Unknown comparator type.");
             }
-            searchSpaceCounters.put(new SearchSpace(nextId++, strategy, relationData.getSchema(), launchpadOrder), 0);
-        }
-        if (configuration.isFindFds) {
-            for (Column rhs : schema.getColumns()) {
 
+            // Search spaces.
+            Object2IntOpenHashMap<SearchSpace> searchSpaceCounters = new Object2IntOpenHashMap<>();
+            int nextId = 0;
+            if (configuration.isFindKeys) {
                 DependencyStrategy strategy;
                 switch (configuration.uccErrorMeasure) {
                     case "g1prime":
-                        strategy = new FdG1Strategy(
-                                rhs,
+                        strategy = new KeyG1Strategy(
                                 configuration.maxUccError,
                                 configuration.errorDev
                         );
@@ -137,35 +127,56 @@ public class Pyro
                 }
                 searchSpaceCounters.put(new SearchSpace(nextId++, strategy, relationData.getSchema(), launchpadOrder), 0);
             }
-        }
-        searchSpaceCounters.keySet().forEach(searchSpace -> {
-            searchSpace.setContext(profilingContext);
-            searchSpace.ensureInitialized();
-        });
-        profilingContext.profilingData.initializationMillis.addAndGet(System.currentTimeMillis() - initializationStartMillis);
+            if (configuration.isFindFds) {
+                for (Column rhs : schema.getColumns()) {
 
-        final long operationStartMillis = System.currentTimeMillis();
-        try {
-            Collection<Future<?>> futures = new LinkedList<>();
+                    DependencyStrategy strategy;
+                    switch (configuration.uccErrorMeasure) {
+                        case "g1prime":
+                            strategy = new FdG1Strategy(
+                                    rhs,
+                                    configuration.maxUccError,
+                                    configuration.errorDev
+                            );
+                            break;
+                        default:
+                            throw new AlgorithmExecutionException("Unknown key error measure.");
 
-            // Start the worker threads and wait for their completion.
-            for (int i = 0; i < parallelism; i++) {
-                futures.add(executorService.submit(() -> runWorker(searchSpaceCounters)));
+                    }
+                    searchSpaceCounters.put(new SearchSpace(nextId++, strategy, relationData.getSchema(), launchpadOrder), 0);
+                }
             }
-            for (Future<?> future : futures) {
-                future.get();
-            }
-            futures.clear();
+            final ProfilingContext finalProfilingContext = profilingContext;
+            searchSpaceCounters.keySet().forEach(searchSpace -> {
+                searchSpace.setContext(finalProfilingContext);
+                searchSpace.ensureInitialized();
+            });
+            profilingContext.profilingData.initializationMillis.addAndGet(System.currentTimeMillis() - initializationStartMillis);
 
-        } catch (InterruptedException | ExecutionException e) {
-            throw new AlgorithmExecutionException("Execution interrupted.", e);
+            final long operationStartMillis = System.currentTimeMillis();
+            try {
+                Parallel.forEach(
+                        Parallel.range(parallelism),
+                        n -> runWorker(searchSpaceCounters),
+                        executor,
+                        true
+                );
+            } finally {
+                profilingContext.profilingData.operationMillis.addAndGet(System.currentTimeMillis() - operationStartMillis);
+            }
+        } catch (AlgorithmConfigurationException e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new AlgorithmExecutionException("Execution failed.", t);
         } finally {
-            if (!executorService.isShutdown()) {
-                System.out.println("Shutting down the thread pool.");
+            if (executorService != null && !executorService.isShutdown()) {
+                this.logger.info("Shutting down the thread pool.");
                 executorService.shutdownNow();
             }
-            profilingContext.profilingData.operationMillis.addAndGet(System.currentTimeMillis() - operationStartMillis);
-            profilingContext.profilingData.printReport("Pyro (Metanome)", System.out);
+            if (profilingContext != null) {
+                profilingContext.profilingData.printReport("Pyro (Metanome)", System.out);
+
+            }
         }
     }
 

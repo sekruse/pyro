@@ -59,11 +59,12 @@ public class ProfilingContext extends DependencyConsumer {
      *
      * @param configuration the configuration for Pyro
      * @param relationData  that should be profiled
+     * @param executor
      */
     public ProfilingContext(Configuration configuration,
                             ColumnLayoutRelationData relationData,
                             Consumer<PartialKey> uccConsumer,
-                            Consumer<PartialFD> fdConsumer) {
+                            Consumer<PartialFD> fdConsumer, Parallel.Executor executor) {
         final long startMillis = System.currentTimeMillis();
         this.configuration = configuration;
         this.relationData = relationData;
@@ -108,6 +109,16 @@ public class ProfilingContext extends DependencyConsumer {
                         initialCacheSize, this.agreeSetSamples.size(), elapsedNanos / 1_000_000
                 ));
             });
+            Parallel.forEach(
+                    schema.getColumns(),
+                    column -> {
+                        AgreeSetSample sample = this.createFocusedSample(column, 1d);
+                        this.agreeSetSamples.put(column, sample);
+                    },
+                    executor,
+                    true
+            );
+
         } else {
             this.agreeSetSamples = null;
         }

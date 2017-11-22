@@ -18,6 +18,7 @@ import de.hpi.isg.pyro.model.ColumnLayoutRelationData;
 import de.hpi.isg.pyro.model.Vertical;
 import de.hpi.isg.pyro.properties.MetanomeProperty;
 import de.hpi.isg.pyro.properties.MetanomePropertyLedger;
+import de.hpi.isg.pyro.util.Parallel;
 import de.hpi.isg.pyro.util.PositionListIndex;
 import de.metanome.algorithm_integration.AlgorithmConfigurationException;
 import de.metanome.algorithm_integration.AlgorithmExecutionException;
@@ -70,7 +71,11 @@ public class ADuccDfd
         // Load the relation.
         long startMillis = System.currentTimeMillis();
         ColumnLayoutRelationData relation = ColumnLayoutRelationData.createFrom(
-                this.fileInputGenerator, this.configuration.isNullEqualNull, this.configuration.maxCols, this.configuration.maxRows
+                this.fileInputGenerator,
+                this.configuration.isNullEqualNull,
+                this.configuration.maxCols,
+                this.configuration.maxRows,
+                Parallel.threadLocalExecutor
         );
         PliRepository pliRepository = new PliRepository(relation, this.configuration.pliCacheCapacity, this.configuration.protectedLruPlis);
         profilingData.initializationMillis.addAndGet(System.currentTimeMillis() - startMillis);

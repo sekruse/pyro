@@ -1,5 +1,6 @@
 package de.hpi.isg.pyro.model;
 
+import de.hpi.isg.pyro.util.Parallel;
 import de.hpi.isg.pyro.util.PositionListIndex;
 import de.metanome.algorithm_integration.AlgorithmConfigurationException;
 import de.metanome.algorithm_integration.input.InputGenerationException;
@@ -24,13 +25,17 @@ public class ColumnLayoutRelationData extends RelationData {
      */
     private final ColumnData[] columnData;
 
-    public static ColumnLayoutRelationData createFrom(RelationalInputGenerator fileInputGenerator, boolean isNullEqualNull)
+    public static ColumnLayoutRelationData createFrom(RelationalInputGenerator fileInputGenerator,
+                                                      boolean isNullEqualNull)
             throws InputGenerationException, AlgorithmConfigurationException, InputIterationException {
-        return createFrom(fileInputGenerator, isNullEqualNull, -1, -1);
+        return createFrom(fileInputGenerator, isNullEqualNull, -1, -1, Parallel.threadLocalExecutor);
     }
 
-    public static ColumnLayoutRelationData createFrom(RelationalInputGenerator fileInputGenerator, boolean isNullEqualNull,
-                                                      int maxCols, long maxRows)
+    public static ColumnLayoutRelationData createFrom(RelationalInputGenerator fileInputGenerator,
+                                                      boolean isNullEqualNull,
+                                                      int maxCols,
+                                                      long maxRows,
+                                                      Parallel.Executor executor)
             throws InputGenerationException, AlgorithmConfigurationException, InputIterationException {
 
         long _startMillis = System.currentTimeMillis();
@@ -76,17 +81,25 @@ public class ColumnLayoutRelationData extends RelationData {
             valueDictionary = null;
 
             // Create the actual data structures.
-            final ColumnData[] columnData = new ColumnData[columnVectors.size()];
-            int index = 0;
-            for (IntList columnVector : columnVectors) {
-                // Declare the column.
-                Column column = new Column(schema, relationalInput.columnNames().get(index), index);
-                schema.columns.add(column);
+            List<ColumnData> columnDataList = Parallel.map(
+                    Parallel.zipWithIndex(columnVectors),
+                    columnVectorWithIndex -> {
+                        // Declare the column.
+                        int index = columnVectorWithIndex.f2;
+                        Column column = new Column(schema, relationalInput.columnNames().get(index), index);
 
-                // Create the column data.
-                PositionListIndex pli = PositionListIndex.createFor(columnVector, schema.isNullEqualNull());
-                columnData[index] = new ColumnData(column, pli.getProbingTable(true), pli);
-                index++;
+                        // Create the column data.
+                        IntList columnVector = columnVectorWithIndex.f1;
+                        PositionListIndex pli = PositionListIndex.createFor(columnVector, schema.isNullEqualNull());
+                        return new ColumnData(column, pli.getProbingTable(true), pli);
+                    },
+                    executor,
+                    true
+            );
+            final ColumnData[] columnData = new ColumnData[columnVectors.size()];
+            for (ColumnData data : columnDataList) {
+                schema.columns.add(data.getColumn());
+                columnData[data.getColumn().getIndex()] = data;
             }
             ColumnLayoutRelationData instance = new ColumnLayoutRelationData(schema, columnData);
 

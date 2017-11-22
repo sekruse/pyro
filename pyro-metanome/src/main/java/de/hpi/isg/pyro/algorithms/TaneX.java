@@ -15,6 +15,7 @@ import de.hpi.isg.pyro.tanex.FdErrorMeasure;
 import de.hpi.isg.pyro.tanex.UccErrorMeasure;
 import de.hpi.isg.pyro.util.LatticeLevel;
 import de.hpi.isg.pyro.util.LatticeVertex;
+import de.hpi.isg.pyro.util.Parallel;
 import de.hpi.isg.pyro.util.PositionListIndex;
 import de.metanome.algorithm_integration.AlgorithmConfigurationException;
 import de.metanome.algorithm_integration.AlgorithmExecutionException;
@@ -114,7 +115,11 @@ public class TaneX
 
         // Load data.
         final ColumnLayoutRelationData relation = ColumnLayoutRelationData.createFrom(
-                this.inputGenerator, this.configuration.isNullEqualNull, this.configuration.maxCols, this.configuration.maxRows
+                this.inputGenerator,
+                this.configuration.isNullEqualNull,
+                this.configuration.maxCols,
+                this.configuration.maxRows,
+                Parallel.threadLocalExecutor
         );
         RelationSchema schema = relation.getSchema();
 
