@@ -383,6 +383,7 @@ public class PositionListIndex {
                 final int position = iterator.nextInt();
                 if (!takeProbe(position, relationData, probingColumns, probe)) {
                     // Skip singleton values.
+                    probe.clear();
                     continue;
                 }
 

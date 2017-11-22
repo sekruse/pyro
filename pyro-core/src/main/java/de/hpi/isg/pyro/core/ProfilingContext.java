@@ -25,27 +25,27 @@ public class ProfilingContext extends DependencyConsumer {
     /**
      * The configuration of Pyro.
      */
-    final Configuration configuration;
+    public final Configuration configuration;
 
     /**
      * Caches {@link PositionListIndex}es.
      */
-    final PLICache pliCache;
+    public final PLICache pliCache;
 
     /**
      * Caches {@link AgreeSetSample}s.
      */
-    final VerticalMap<AgreeSetSample> agreeSetSamples;
+    public final VerticalMap<AgreeSetSample> agreeSetSamples;
 
     /**
      * The {@link ColumnLayoutRelationData} to be profiled.
      */
-    final ColumnLayoutRelationData relationData;
+    public final ColumnLayoutRelationData relationData;
 
     /**
      * Provides randomness.
      */
-    final Random random;
+    public final Random random;
 
     /**
      * Collects performance profiling data.
@@ -73,9 +73,7 @@ public class ProfilingContext extends DependencyConsumer {
         this.random = this.configuration.seed == null ? new Random() : new Random(this.configuration.seed);
         this.pliCache = new PLICache(
                 relationData,
-                true,
-                this.configuration.cachingProbability,
-                this.configuration.naryIntersectionSize
+                true
         );
         this.memoryWatchdog.addListener(() -> {
             VerticalMap<PositionListIndex> index = this.pliCache.getIndex();
@@ -158,7 +156,7 @@ public class ProfilingContext extends DependencyConsumer {
         ListAgreeSetSample sample = ListAgreeSetSample.createFocusedFor(
                 this.relationData,
                 focus,
-                this.pliCache.getOrCreateFor(focus),
+                this.pliCache.getOrCreateFor(focus, this),
                 (int) (this.configuration.sampleSize * boostFactor),
                 this.random
         );
@@ -200,7 +198,6 @@ public class ProfilingContext extends DependencyConsumer {
         return this.relationData;
     }
 
-
     /**
      * Retrieve the {@link RelationSchema} associated with this instance.
      *
@@ -209,7 +206,6 @@ public class ProfilingContext extends DependencyConsumer {
     public RelationSchema getSchema() {
         return this.relationData.getSchema();
     }
-
 
     @Override
     protected void finalize() throws Throwable {

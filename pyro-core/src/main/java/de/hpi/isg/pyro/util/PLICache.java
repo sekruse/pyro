@@ -1,5 +1,6 @@
 package de.hpi.isg.pyro.util;
 
+import de.hpi.isg.pyro.core.ProfilingContext;
 import de.hpi.isg.pyro.model.Column;
 import de.hpi.isg.pyro.model.ColumnData;
 import de.hpi.isg.pyro.model.RelationData;
@@ -17,18 +18,12 @@ public class PLICache {
 
     private static final Logger logger = LoggerFactory.getLogger(PLICache.class);
 
-    private final int naryIntersectionSize;
-
     private final RelationData relationData;
 
     private final VerticalMap<PositionListIndex> index;
 
-    private final double cachingProbability;
-
     public PLICache(RelationData relationData,
-                    boolean isSynchronized,
-                    double cachingProbability,
-                    int naryIntersectionSize) {
+                    boolean isSynchronized) {
         this.relationData = relationData;
         this.index = isSynchronized ?
                 new SynchronizedVerticalMap<>(this.relationData.getSchema()) :
@@ -36,8 +31,6 @@ public class PLICache {
         for (Column column : relationData.getSchema().getColumns()) {
             this.index.put(column, relationData.getColumnData(column.getIndex()).getPositionListIndex());
         }
-        this.cachingProbability = cachingProbability;
-        this.naryIntersectionSize = naryIntersectionSize;
     }
 
     /**
@@ -57,7 +50,7 @@ public class PLICache {
      * @param vertical for which a {@link PositionListIndex} is required
      * @return the {@link PositionListIndex}
      */
-    public PositionListIndex getOrCreateFor(Vertical vertical) {
+    public PositionListIndex getOrCreateFor(Vertical vertical, ProfilingContext profilingContext) {
         if (logger.isDebugEnabled()) logger.debug("PLI for {} requested: ", vertical);
 
         // See if the PLI is cached.
@@ -138,12 +131,12 @@ public class PLICache {
             );
 
         // Intersect all the PLIs.
-        Random random = new Random();
-        if (operands.size() >= this.naryIntersectionSize) {
+        Random random = profilingContext.random;
+        if (operands.size() >= profilingContext.configuration.naryIntersectionSize) {
             PositionListIndexRank basePliRank = operands.get(0);
             pli = basePliRank.pli.probeAll(vertical.without(basePliRank.vertical), relationData);
             // Cache the PLI.
-            if (random.nextDouble() < this.cachingProbability) {
+            if (random.nextDouble() < profilingContext.configuration.cachingProbability) {
                 this.index.put(vertical, pli);
             }
         } else {
@@ -156,7 +149,7 @@ public class PLICache {
                     currentVertical = currentVertical.union(operand.vertical);
                     pli = pli.intersect(operand.pli);
                     // Cache the PLI.
-                    if (random.nextDouble() < this.cachingProbability) {
+                    if (random.nextDouble() < profilingContext.configuration.cachingProbability) {
                         this.index.put(currentVertical, pli);
                     }
                 }

@@ -55,7 +55,7 @@ public class FdG1Strategy extends DependencyStrategy {
             assert rhsPli != null;
             error = this.calculateG1(rhsPli.getNip());
         } else {
-            PositionListIndex lhsPli = this.context.pliCache.getOrCreateFor(lhs);
+            PositionListIndex lhsPli = this.context.pliCache.getOrCreateFor(lhs, this.context);
             PositionListIndex jointPli = this.context.pliCache.get(lhs.union(rhs));
             error = jointPli == null ? this.calculateG1(lhsPli) : this.calculateG1(lhsPli.getNepAsLong() - jointPli.getNepAsLong());
         }

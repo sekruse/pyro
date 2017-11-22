@@ -35,7 +35,7 @@ public class KeyG1Strategy extends DependencyStrategy {
     @Override
     double calculateError(Vertical keyCandidate) {
         final long startNanos = System.nanoTime();
-        PositionListIndex pli = this.context.pliCache.getOrCreateFor(keyCandidate);
+        PositionListIndex pli = this.context.pliCache.getOrCreateFor(keyCandidate, this.context);
         double error = this.calculateKeyError(pli);
         this.context.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
         this.context.profilingData.numErrorCalculations.incrementAndGet();
@@ -64,7 +64,7 @@ public class KeyG1Strategy extends DependencyStrategy {
         // If we have columns, there is no need to estimate.
         if (vertical.getArity() == 1) {
             final long startNanos = System.nanoTime();
-            PositionListIndex pli = this.context.pliCache.getOrCreateFor(vertical);
+            PositionListIndex pli = this.context.pliCache.getOrCreateFor(vertical, this.context);
             double keyError = this.calculateKeyError((long) pli.getNep());
             this.context.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
             this.context.profilingData.numErrorCalculations.incrementAndGet();
