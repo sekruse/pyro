@@ -5,6 +5,8 @@ import de.hpi.isg.pyro.util.BitSets;
 import de.hpi.isg.pyro.util.VerticalMap;
 import de.metanome.algorithm_integration.ColumnCombination;
 import de.metanome.algorithm_integration.ColumnIdentifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.util.*;
@@ -16,6 +18,8 @@ import java.util.function.Predicate;
  * @see RelationData
  */
 public class RelationSchema implements Serializable {
+
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     protected final String name;
 
@@ -110,6 +114,7 @@ public class RelationSchema implements Serializable {
 
     /**
      * Append a {@link de.hpi.isg.mdms.model.targets.Column} to this instance.
+     *
      * @param name the name of the new {@link de.hpi.isg.mdms.model.targets.Column}
      */
     public void appendColumn(String name) {
@@ -187,8 +192,24 @@ public class RelationSchema implements Serializable {
             }
         }
 
-        profilingData.hittingSetNanos.addAndGet(System.nanoTime() - startNanos);
+        long elapsedNanos = System.nanoTime() - startNanos;
+        profilingData.hittingSetNanos.addAndGet(elapsedNanos);
         profilingData.numHittingSets.incrementAndGet();
+
+        // Warn if a hitting set calculation took very long.
+        if (elapsedNanos > 1e7) { // 10 ms
+            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+            StackTraceElement caller = stackTrace[3];
+            if (this.logger.isWarnEnabled()) {
+                this.logger.warn(String.format(
+                        "Hitting set calculation with %,d input and %,d output verticals took %,d ms (called from: %s).",
+                        verticals.size(),
+                        hittingSet.size(),
+                        elapsedNanos / 1_000_000L,
+                        caller
+                ));
+            }
+        }
 
         // Produce the result.
         return hittingSet.keySet();
