@@ -3,7 +3,7 @@ package de.hpi.isg.pyro.ducc_dfd;
 import de.hpi.isg.pyro.model.Column;
 import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
-import de.hpi.isg.pyro.util.PFDRater;
+import de.hpi.isg.pyro.util.PartialFdScoring;
 import de.hpi.isg.pyro.util.PositionListIndex;
 
 import java.util.function.BiConsumer;
@@ -70,7 +70,7 @@ public class FdGraphTraverser extends GraphTraverser {
         }
         this.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
         this.profilingData.numErrorCalculations.incrementAndGet();
-        return PFDRater.round(error);
+        return PartialFdScoring.round(error);
     }
 
     @Override

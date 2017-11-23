@@ -4,7 +4,7 @@ import de.hpi.isg.pyro.model.Column;
 import de.hpi.isg.pyro.model.Vertical;
 import de.hpi.isg.pyro.util.AgreeSetSample;
 import de.hpi.isg.pyro.util.ConfidenceInterval;
-import de.hpi.isg.pyro.util.PFDRater;
+import de.hpi.isg.pyro.util.PartialFdScoring;
 import de.hpi.isg.pyro.util.PositionListIndex;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
@@ -107,7 +107,7 @@ public class FdG1Strategy extends DependencyStrategy {
     private double calculateG1(double numViolatingTuplePairs) {
         double g1 = numViolatingTuplePairs / this.context.relationData.getNumTuplePairs();
         // We truncate some precision here to avoid small numerical flaws to affect the result.
-        return PFDRater.round(g1);
+        return PartialFdScoring.round(g1);
     }
 
     private ConfidenceInterval calculateG1(ConfidenceInterval numViolations) {
@@ -145,7 +145,7 @@ public class FdG1Strategy extends DependencyStrategy {
         // TODO: Calculate score.
         this.context.profilingData.numDependencies.incrementAndGet();
         this.context.profilingData.dependencyArity.addAndGet(vertical.getArity());
-        discoveryUnit.registerFd(vertical, this.rhs, error, Double.NaN);
+        discoveryUnit.registerFd(vertical, this.rhs, error, this.context.rateFdScore(vertical, this.rhs));
     }
 
     @Override

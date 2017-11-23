@@ -4,7 +4,7 @@ import de.hpi.isg.pyro.model.Column;
 import de.hpi.isg.pyro.model.Vertical;
 import de.hpi.isg.pyro.util.AgreeSetSample;
 import de.hpi.isg.pyro.util.ConfidenceInterval;
-import de.hpi.isg.pyro.util.PFDRater;
+import de.hpi.isg.pyro.util.PartialFdScoring;
 import de.hpi.isg.pyro.util.PositionListIndex;
 
 /**
@@ -49,7 +49,7 @@ public class KeyG1Strategy extends DependencyStrategy {
     private double calculateKeyError(double numEqualityPairs) {
         double keyError = numEqualityPairs / this.context.getRelationData().getNumTuplePairs();
         // We truncate some precision here to avoid small numerical flaws to affect the result.
-        return PFDRater.round(keyError);
+        return PartialFdScoring.round(keyError);
     }
 
     private ConfidenceInterval calculateKeyError(ConfidenceInterval estimatedEqualityPairs) {

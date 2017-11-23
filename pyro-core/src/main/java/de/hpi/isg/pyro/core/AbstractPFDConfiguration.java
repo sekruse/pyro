@@ -21,6 +21,11 @@ public class AbstractPFDConfiguration implements Serializable {
     @MetanomeProperty
     public String tableIdentifier;
 
+    @Parameter(names = "--constraintCollectionPrefix", description = "if operated with Metacrate, a prefix for a " +
+            "constraint collection ID")
+    @MetanomeProperty
+    public String constraintCollectionPrefix;
+
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // General pruning rules.
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

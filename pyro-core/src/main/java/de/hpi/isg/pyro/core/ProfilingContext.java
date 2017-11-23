@@ -54,6 +54,8 @@ public class ProfilingContext extends DependencyConsumer {
 
     public final MemoryWatchdog memoryWatchdog = MemoryWatchdog.start(0.85, 100);
 
+    private final PartialFdScoring partialFdScoring;
+
     /**
      * Creates a new instance.
      *
@@ -125,6 +127,15 @@ public class ProfilingContext extends DependencyConsumer {
         this.memoryWatchdog.addListener(System::gc);
 
         this.profilingData.initializationMillis.addAndGet(System.currentTimeMillis() - startMillis);
+
+        switch (configuration.fdScoreMeasure) {
+            case "hypergeo":
+                this.partialFdScoring = PartialFdScoring.hypergeometricScoring;
+                break;
+            default:
+                this.logger.info("Not assessing FD scores.");
+                this.partialFdScoring = null;
+        }
     }
 
     public void createColumnAgreeSetSamples(Function<Runnable, Future<?>> exeutor) {
@@ -211,6 +222,11 @@ public class ProfilingContext extends DependencyConsumer {
     protected void finalize() throws Throwable {
         super.finalize();
         this.memoryWatchdog.stop();
+    }
+
+    public double rateFdScore(Vertical lhs, Column rhs) {
+        if (this.partialFdScoring == null) return Double.NaN;
+        return this.partialFdScoring.rate(lhs, rhs, this);
     }
 
     /**

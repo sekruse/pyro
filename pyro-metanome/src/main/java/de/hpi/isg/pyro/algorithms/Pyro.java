@@ -281,12 +281,16 @@ public class Pyro
     public void setMetadataStore(MetadataStore metadataStore) {
         this.metadataStore = metadataStore;
 
+        this.table = this.metadataStore.getTableByName(this.configuration.tableIdentifier);
+
         // If we are given a MetadataStore, then we bypass the result receivers, because they do not support
         // approximate/partial dependencies.
         this.fdConsumer = partialFD -> {
             if (this.pfdConstraintcollection == null) {
                 this.pfdConstraintcollection = this.metadataStore.createConstraintCollection(
+                        this.configuration.constraintCollectionPrefix + "fds",
                         String.format("Partial FDs from %s (%s)", this.getClass().getSimpleName(), new Date()),
+                        null,
                         PartialFunctionalDependency.class,
                         this.table
                 );
@@ -299,7 +303,9 @@ public class Pyro
         this.uccConsumer = partialKey -> {
             if (this.puccConstraintcollection == null) {
                 this.puccConstraintcollection = this.metadataStore.createConstraintCollection(
+                        this.configuration.constraintCollectionPrefix + "uccs",
                         String.format("Partial UCCs from %s (%s)", this.getClass().getSimpleName(), new Date()),
+                        null,
                         PartialUniqueColumnCombination.class,
                         this.table
                 );
