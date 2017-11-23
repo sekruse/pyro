@@ -13,6 +13,7 @@
         <module>pyro-metanome</module>
         <module>pyro-akka</module>
         <module>pyro-distro</module>
+        <module>pyro-evaluation</module>
     </modules>
 
     <properties>
@@ -137,7 +138,7 @@
             </dependency>
             <dependency>
                 <groupId>de.hpi.isg</groupId>
-                <artifactId>mdms-flink</artifactId>
+                <artifactId>mdms-model</artifactId>
                 <version>${metacrate.version}</version>
             </dependency>
 

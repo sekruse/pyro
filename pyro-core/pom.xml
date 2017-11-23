@@ -34,11 +34,6 @@
             <version>${metacrate.version}</version>
         </dependency>
         <dependency>
-            <groupId>de.hpi.isg</groupId>
-            <artifactId>mdms-flink</artifactId>
-            <version>${metacrate.version}</version>
-        </dependency>
-        <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil</artifactId>
         </dependency>

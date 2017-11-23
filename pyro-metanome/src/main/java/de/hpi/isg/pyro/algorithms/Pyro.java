@@ -287,8 +287,13 @@ public class Pyro
         // approximate/partial dependencies.
         this.fdConsumer = partialFD -> {
             if (this.pfdConstraintcollection == null) {
+                String id = Optional.ofNullable(this.configuration.constraintCollectionPrefix).orElse("pyro-") + "fds";
+                ConstraintCollection<Object> constraintCollection = this.metadataStore.getConstraintCollection(id);
+                if (constraintCollection != null) {
+                    this.metadataStore.removeConstraintCollection(constraintCollection);
+                }
                 this.pfdConstraintcollection = this.metadataStore.createConstraintCollection(
-                        this.configuration.constraintCollectionPrefix + "fds",
+                        id,
                         String.format("Partial FDs from %s (%s)", this.getClass().getSimpleName(), new Date()),
                         null,
                         PartialFunctionalDependency.class,
@@ -302,8 +307,13 @@ public class Pyro
         };
         this.uccConsumer = partialKey -> {
             if (this.puccConstraintcollection == null) {
+                String id = Optional.ofNullable(this.configuration.constraintCollectionPrefix).orElse("pyro-") + "uccs";
+                ConstraintCollection<Object> constraintCollection = this.metadataStore.getConstraintCollection(id);
+                if (constraintCollection != null) {
+                    this.metadataStore.removeConstraintCollection(constraintCollection);
+                }
                 this.puccConstraintcollection = this.metadataStore.createConstraintCollection(
-                        this.configuration.constraintCollectionPrefix + "uccs",
+                        id,
                         String.format("Partial UCCs from %s (%s)", this.getClass().getSimpleName(), new Date()),
                         null,
                         PartialUniqueColumnCombination.class,

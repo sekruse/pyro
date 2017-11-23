@@ -38,11 +38,11 @@ public interface PartialFdScoring {
     PartialFdScoring hypergeometricScoring = (lhs, rhs, profilingContext) -> {
         PositionListIndex rhsPli = profilingContext.pliCache.getOrCreateFor(rhs, profilingContext);
         if (lhs.getArity() == 0) {
-            return Math.log(0.5);
+            return -Math.log(0.5);
         } else {
             PositionListIndex lhsPli = profilingContext.pliCache.getOrCreateFor(lhs, profilingContext);
             PositionListIndex jointPli = profilingContext.pliCache.getOrCreateFor(lhs.union(rhs), profilingContext);
-            return HyperGeometricDistributions.estimateLogRightTailArea(
+            return -HyperGeometricDistributions.estimateLogRightTailArea(
                     lhsPli.getNepAsLong(),
                     rhsPli.getNepAsLong(),
                     jointPli.getNepAsLong(),
