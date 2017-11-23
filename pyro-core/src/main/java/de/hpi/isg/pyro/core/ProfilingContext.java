@@ -129,8 +129,11 @@ public class ProfilingContext extends DependencyConsumer {
         this.profilingData.initializationMillis.addAndGet(System.currentTimeMillis() - startMillis);
 
         switch (configuration.fdScoreMeasure) {
-            case "hypergeo":
-                this.partialFdScoring = PartialFdScoring.hypergeometricScoring;
+            case "hypergeo+pairs":
+                this.partialFdScoring = PartialFdScoring.hypergeometricPairScoring;
+                break;
+            case "hypergeo+entropy":
+                this.partialFdScoring = PartialFdScoring.hypergeometricEntropyScoring;
                 break;
             default:
                 this.logger.info("Not assessing FD scores.");

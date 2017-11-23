@@ -35,18 +35,41 @@ public interface PartialFdScoring {
      * Scores partial FDs by modeling the overlap of inequality pairs of the LHS and RHS as a hypergeometric
      * distribution and estimate the area under the right tail.
      */
-    PartialFdScoring hypergeometricScoring = (lhs, rhs, profilingContext) -> {
-        PositionListIndex rhsPli = profilingContext.pliCache.getOrCreateFor(rhs, profilingContext);
+    PartialFdScoring hypergeometricPairScoring = (lhs, rhs, profilingContext) -> {
         if (lhs.getArity() == 0) {
-            return -Math.log(0.5);
+            return Math.log(0.5);
         } else {
+            PositionListIndex rhsPli = profilingContext.pliCache.getOrCreateFor(rhs, profilingContext);
             PositionListIndex lhsPli = profilingContext.pliCache.getOrCreateFor(lhs, profilingContext);
             PositionListIndex jointPli = profilingContext.pliCache.getOrCreateFor(lhs.union(rhs), profilingContext);
-            return -HyperGeometricDistributions.estimateLogRightTailArea(
+            return HyperGeometricDistributions.estimateLogLeftTailArea(
                     lhsPli.getNepAsLong(),
                     rhsPli.getNepAsLong(),
                     jointPli.getNepAsLong(),
                     profilingContext.relationData.getNumTuplePairs()
+            );
+        }
+    };
+
+    /**
+     * Scores partial FDs by modeling the overlap of inequality pairs of the LHS and RHS as a hypergeometric
+     * distribution and estimate the area under the right tail.
+     */
+    PartialFdScoring hypergeometricEntropyScoring = (lhs, rhs, profilingContext) -> {
+        if (lhs.getArity() == 0) {
+            return Math.log(0.5);
+        } else {
+            PositionListIndex rhsPli = profilingContext.pliCache.getOrCreateFor(rhs, profilingContext);
+            PositionListIndex lhsPli = profilingContext.pliCache.getOrCreateFor(lhs, profilingContext);
+            PositionListIndex jointPli = profilingContext.pliCache.getOrCreateFor(lhs.union(rhs), profilingContext);
+            double maximumEntropy = profilingContext.relationData.getMaximumEntropy();
+            double mutualInformation = lhsPli.getEntropy() + rhsPli.getEntropy() - jointPli.getEntropy();
+            int scalingFactor = profilingContext.getRelationData().getNumRows();
+            return HyperGeometricDistributions.estimateLogLeftTailArea(
+                    (long) (scalingFactor * lhsPli.getEntropy() / maximumEntropy),
+                    (long) (scalingFactor * rhsPli.getEntropy() / maximumEntropy),
+                    (long) (scalingFactor * mutualInformation / maximumEntropy),
+                    scalingFactor
             );
         }
     };
