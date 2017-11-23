@@ -54,10 +54,14 @@ public class TableSample {
         }
         CsvFileLocation csvFileLocation = (CsvFileLocation) location;
         File file;
-        try {
-            file = new File(new URI(csvFileLocation.getPath()));
-        } catch (URISyntaxException e) {
-            throw new IOException(e);
+        if (csvFileLocation.getPath().startsWith("file:")) {
+            try {
+                file = new File(new URI(csvFileLocation.getPath()));
+            } catch (URISyntaxException e) {
+                throw new IOException(e);
+            }
+        } else {
+            file = new File(csvFileLocation.getPath());
         }
         ConfigurationSettingFileInput fileInputSettings = new ConfigurationSettingFileInput(file.getPath());
         fileInputSettings.setSeparatorChar(String.valueOf(csvFileLocation.getFieldSeparator()));
