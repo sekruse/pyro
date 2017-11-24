@@ -153,9 +153,10 @@ public class RelationSchema implements Serializable {
         long _startNanos = System.nanoTime();
         int _intermediateHittingSets = 0;
 
+        // Sort verticals by arity to make use of subset relationships.
         List<Vertical> sortedVerticals = new ArrayList<>(verticals);
-        sortedVerticals.sort(Comparator.comparing(Vertical::getArity).reversed());
-        VerticalMap<Vertical> consolidatedInvertedVerticals = new VerticalMap<>(this);
+        sortedVerticals.sort(Comparator.comparing(Vertical::getArity));
+        VerticalMap<Vertical> consolidatedVerticals = new VerticalMap<>(this);
 
         VerticalMap<Vertical> hittingSet = new VerticalMap<>(this);
         hittingSet.put(this.emptyVertical, this.emptyVertical);
@@ -168,18 +169,17 @@ public class RelationSchema implements Serializable {
             long _verticalStartNanos = System.nanoTime();
 
             // We can skip any vertical whose supersets we already operated on.
-            Vertical invertedVertical = vertical.invert();
-            if (consolidatedInvertedVerticals.getAnySubsetEntry(invertedVertical) != null) {
+            if (consolidatedVerticals.getAnySubsetEntry(vertical) != null) {
                 _checkNanos = System.nanoTime() - _verticalStartNanos;
                 continue;
             }
-            consolidatedInvertedVerticals.put(invertedVertical, invertedVertical);
+            consolidatedVerticals.put(vertical, vertical);
 
             _checkNanos += System.nanoTime() - _verticalStartNanos;
             long _removeStartNanos = System.nanoTime();
 
             // All hitting set member that are disjoint from the vertical are invalid.
-            ArrayList<Vertical> invalidHittingSetMembers = hittingSet.getSubsetKeys(invertedVertical);
+            ArrayList<Vertical> invalidHittingSetMembers = hittingSet.getSubsetKeys(vertical);
             invalidHittingSetMembers.sort(Comparator.comparing(Vertical::getArity));
 
             // Remove the invalid hitting set members.
@@ -234,7 +234,7 @@ public class RelationSchema implements Serializable {
                                 "* Test for pruning:        %,5d ms\n" +
                                 "* Intermediate solutions:  %,5d #",
                         verticals.size(),
-                        consolidatedInvertedVerticals.size(),
+                        consolidatedVerticals.size(),
                         hittingSet.size(),
                         elapsedNanos / 1_000_000L,
                         stackTrace[2],
