@@ -135,6 +135,12 @@ public class ProfilingContext extends DependencyConsumer {
             case "hypergeo+entropy":
                 this.partialFdScoring = PartialFdScoring.hypergeometricEntropyScoring;
                 break;
+            case "hypergeo+simple":
+                this.partialFdScoring = PartialFdScoring.hypergeometricSimpleScoring;
+                break;
+            case "pyro":
+                this.partialFdScoring = PartialFdScoring.pyroScoring;
+                break;
             default:
                 this.logger.info("Not assessing FD scores.");
                 this.partialFdScoring = null;

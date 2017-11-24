@@ -37,12 +37,12 @@ public interface PartialFdScoring {
      */
     PartialFdScoring hypergeometricPairScoring = (lhs, rhs, profilingContext) -> {
         if (lhs.getArity() == 0) {
-            return Math.log(0.5);
+            return -Math.log(0.5);
         } else {
             PositionListIndex rhsPli = profilingContext.pliCache.getOrCreateFor(rhs, profilingContext);
             PositionListIndex lhsPli = profilingContext.pliCache.getOrCreateFor(lhs, profilingContext);
             PositionListIndex jointPli = profilingContext.pliCache.getOrCreateFor(lhs.union(rhs), profilingContext);
-            return HyperGeometricDistributions.estimateLogLeftTailArea(
+            return -HyperGeometricDistributions.estimateLogRightTailArea(
                     lhsPli.getNepAsLong(),
                     rhsPli.getNepAsLong(),
                     jointPli.getNepAsLong(),
@@ -57,7 +57,7 @@ public interface PartialFdScoring {
      */
     PartialFdScoring hypergeometricEntropyScoring = (lhs, rhs, profilingContext) -> {
         if (lhs.getArity() == 0) {
-            return Math.log(0.5);
+            return -Math.log(0.5);
         } else {
             PositionListIndex rhsPli = profilingContext.pliCache.getOrCreateFor(rhs, profilingContext);
             PositionListIndex lhsPli = profilingContext.pliCache.getOrCreateFor(lhs, profilingContext);
@@ -65,13 +65,62 @@ public interface PartialFdScoring {
             double maximumEntropy = profilingContext.relationData.getMaximumEntropy();
             double mutualInformation = lhsPli.getEntropy() + rhsPli.getEntropy() - jointPli.getEntropy();
             int scalingFactor = profilingContext.getRelationData().getNumRows();
-            return HyperGeometricDistributions.estimateLogLeftTailArea(
+            double score = -HyperGeometricDistributions.estimateLogRightTailArea(
                     (long) (scalingFactor * lhsPli.getEntropy() / maximumEntropy),
                     (long) (scalingFactor * rhsPli.getEntropy() / maximumEntropy),
                     (long) (scalingFactor * mutualInformation / maximumEntropy),
                     scalingFactor
             );
+            return score;
         }
+    };
+
+    /**
+     * Scores partial FDs by modeling the overlap of inequality pairs of the LHS and RHS as a hypergeometric
+     * distribution and estimate the area under the right tail.
+     */
+    PartialFdScoring hypergeometricSimpleScoring = (lhs, rhs, profilingContext) -> {
+        if (lhs.getArity() == 0) {
+            return 0;
+        } else {
+            PositionListIndex rhsPli = profilingContext.pliCache.getOrCreateFor(rhs, profilingContext);
+            PositionListIndex lhsPli = profilingContext.pliCache.getOrCreateFor(lhs, profilingContext);
+            PositionListIndex jointPli = profilingContext.pliCache.getOrCreateFor(lhs.union(rhs), profilingContext);
+            double expectedJointNeps = HyperGeometricDistributions.mean(
+                    rhsPli.getNepAsLong(), lhsPli.getNepAsLong(), profilingContext.relationData.getNumTuplePairs()
+            );
+            double stddev = HyperGeometricDistributions.stddev(
+                    rhsPli.getNepAsLong(), lhsPli.getNepAsLong(), profilingContext.relationData.getNumTuplePairs()
+            );
+            return (jointPli.getNep() - expectedJointNeps) / stddev;
+        }
+    };
+
+    /**
+     * Scores partial FDs via the conditional probability
+     * <i>P(t[RHS] = t'[RHS] | t[LHS] = t'[RHS])</i>.
+     */
+    PartialFdScoring conditionalG1Scoring = (lhs, rhs, profilingContext) -> {
+        if (lhs.getArity() == 0) {
+            return 0;
+        } else {
+            PositionListIndex lhsPli = profilingContext.pliCache.getOrCreateFor(lhs, profilingContext);
+            double lhsNep = lhsPli.getNep();
+            if (lhsNep == 0) return 1;
+
+            PositionListIndex jointPli = profilingContext.pliCache.getOrCreateFor(lhs.union(rhs), profilingContext);
+            ;
+            return jointPli.getNep() / lhsNep;
+        }
+    };
+
+    /**
+     * Scores partial FDs as the product of {@link #hypergeometricSimpleScoring} and {@link #conditionalG1Scoring}.
+     */
+    PartialFdScoring pyroScoring = (lhs, rhs, profilingContext) -> {
+        double simpleScore = hypergeometricSimpleScoring.rate(lhs, rhs, profilingContext);
+        double conditionalG1 = conditionalG1Scoring.rate(lhs, rhs, profilingContext);
+        return Math.signum(simpleScore) * conditionalG1 * Math.log(simpleScore);
     };
 
 }

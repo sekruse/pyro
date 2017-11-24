@@ -338,8 +338,16 @@ public class HyperGeometricDistributions {
         return (mean - k) / (mean - mink);
     }
 
-    public static double mean(long n, long K, long N) {
-        return ((double) n) * ((double) K) / ((double) N);
+    public static double mean(double n, double K, double N) {
+        return n * K / N;
+    }
+
+    public static double variance(double n, double K, double N) {
+        return mean(n, K, N) * (N - K) / N * (N - n) / (N - 1);
+    }
+
+    public static double stddev(double n, double K, double N) {
+        return Math.sqrt(variance(n, K, N));
     }
 
     public static long maxSuccesses(long n, long K) {
