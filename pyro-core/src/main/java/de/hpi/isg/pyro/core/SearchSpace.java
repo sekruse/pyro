@@ -998,4 +998,7 @@ public class SearchSpace implements Serializable {
         }
     }
 
+    public ProfilingContext getContext() {
+        return this.context;
+    }
 }

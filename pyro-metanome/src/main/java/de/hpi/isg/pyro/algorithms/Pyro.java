@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * This is an implementation of the Pyro algorithm without distributed computations.
@@ -231,9 +232,14 @@ public class Pyro
             }
 
             visitedSearchSpaces.add(searchSpace);
+            final long startMillis = System.currentTimeMillis();
             searchSpace.discover();
 
             synchronized (searchSpaceCounters) {
+                searchSpace.getContext().profilingData.searchSpaceMillis
+                        .computeIfAbsent(searchSpace, k -> new AtomicLong())
+                        .addAndGet(System.currentTimeMillis() - startMillis);
+
                 int oldNumThreads = searchSpaceCounters.addTo(searchSpace, -1);
                 if (isVerbose) {
                     System.out.printf("Thread %s left %s (%d-1).\n", Thread.currentThread().getName(), searchSpace, oldNumThreads);
