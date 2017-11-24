@@ -85,9 +85,9 @@ public class Configuration extends AbstractPFDConfiguration {
     @MetanomeProperty
     public boolean isInitialPause = false;
 
-    @Parameter(names = "--fdScore", description = "an optional FD scoring measure (hypergeo)")
+    @Parameter(names = "--fdScore", description = "an optional FD scoring measure")
     @MetanomeProperty
-    public String fdScoreMeasure;
+    public String fdScoreMeasure = "none";
 
 //    /**
 //     * If Pyro should be run in the distributed mode, then this property should include a semicolon separated list of
