@@ -137,7 +137,6 @@ public class RelationSchema implements Serializable {
         return this.isNullEqualNull;
     }
 
-
     /**
      * Calculate the minimum hitting set for the given {@code verticals}.
      *
@@ -162,33 +161,25 @@ public class RelationSchema implements Serializable {
         hittingSet.put(this.emptyVertical, this.emptyVertical);
 
         long _prepareNanos = System.nanoTime() - _startNanos;
-        long _checkNanos = 0L, _removeNanos = 0L, _updateNanos = 0L, _pruningNanos = 0L;
+        long _pruningNanos = 0L;
 
         // Now, continuously refine these escaped LHS.
         for (Vertical vertical : sortedVerticals) {
-            long _verticalStartNanos = System.nanoTime();
 
             // We can skip any vertical whose supersets we already operated on.
             if (consolidatedVerticals.getAnySubsetEntry(vertical) != null) {
-                _checkNanos = System.nanoTime() - _verticalStartNanos;
                 continue;
             }
             consolidatedVerticals.put(vertical, vertical);
 
-            _checkNanos += System.nanoTime() - _verticalStartNanos;
-            long _removeStartNanos = System.nanoTime();
-
             // All hitting set member that are disjoint from the vertical are invalid.
-            ArrayList<Vertical> invalidHittingSetMembers = hittingSet.getSubsetKeys(vertical);
+            ArrayList<Vertical> invalidHittingSetMembers = hittingSet.getSubsetKeys(vertical.invert());
             invalidHittingSetMembers.sort(Comparator.comparing(Vertical::getArity));
 
             // Remove the invalid hitting set members.
             for (Vertical invalidHittingSetMember : invalidHittingSetMembers) {
                 hittingSet.remove(invalidHittingSetMember);
             }
-
-            _removeNanos += System.nanoTime() - _removeStartNanos;
-            long _updateStartNanos = System.nanoTime();
 
             // Add corrected hitting set members.
             for (Vertical invalidMember : invalidHittingSetMembers) {
@@ -202,47 +193,44 @@ public class RelationSchema implements Serializable {
                     // This way, we will never add non-minimal members, because our invalid members are sorted.
                     if (hittingSet.getAnySubsetEntry(correctedMember) == null) {
                         _intermediateHittingSets++;
-                        boolean isPruned = false;
                         if (pruningFunction != null) {
                             long _pruningStartNanos = System.nanoTime();
-                            isPruned = pruningFunction.test(correctedMember);
+                            final boolean isPruned = pruningFunction.test(correctedMember);
                             _pruningNanos += System.nanoTime() - _pruningStartNanos;
+                            if (isPruned) continue;
                         }
-                        if (!isPruned) hittingSet.put(correctedMember, correctedMember);
+                        hittingSet.put(correctedMember, correctedMember);
                     }
                 }
             }
-            _updateNanos += System.nanoTime() - _updateStartNanos;
 
             if (hittingSet.isEmpty()) break;
         }
 
-        long elapsedNanos = System.nanoTime() - _startNanos;
-        profilingData.hittingSetNanos.addAndGet(elapsedNanos);
+        long _elapsedNanos = System.nanoTime() - _startNanos;
+        long _updateNanos = _elapsedNanos - _prepareNanos;
+        profilingData.hittingSetNanos.addAndGet(_elapsedNanos);
+        profilingData.hittingSetPruningNanos.addAndGet(_pruningNanos);
         profilingData.numHittingSets.incrementAndGet();
 
         // Warn if a hitting set calculation took very long.
-        if (elapsedNanos > 1e8) { // 100 ms
+        if (_elapsedNanos > 1e10) { // 1000 ms
             if (this.logger.isWarnEnabled()) {
                 StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
                 this.logger.warn(String.format(
                         "Hitting set calculation with %,d (%,d) input and %,d output verticals took %,d ms (called by %s):\n" +
-                                "* Preparation:             %,5d ms\n" +
-                                "* Check vertical:          %,5d ms\n" +
-                                "* Remove old hitting sets: %,5d ms\n" +
-                                "* Update hitting sets:     %,5d ms\n" +
-                                "* Test for pruning:        %,5d ms\n" +
+                                "* Preparation:             %,5d (%,.01f%%) ms\n" +
+                                "* Evolve solutions:        %,5d (%,.01f%%) ms\n" +
+                                "* Test for pruning:        %,5d (%,.01f%%) ms\n" +
                                 "* Intermediate solutions:  %,5d #",
                         verticals.size(),
                         consolidatedVerticals.size(),
                         hittingSet.size(),
-                        elapsedNanos / 1_000_000L,
+                        _elapsedNanos / 1_000_000L,
                         stackTrace[2],
-                        _prepareNanos / 1_000_000L,
-                        _checkNanos / 1_000_000L,
-                        _removeNanos / 1_000_000L,
-                        _updateNanos / 1_000_000L,
-                        _pruningNanos / 1_000_000L,
+                        _prepareNanos / 1_000_000L, _prepareNanos * 100d / _elapsedNanos,
+                        _updateNanos / 1_000_000L, _updateNanos * 100d / _elapsedNanos,
+                        _pruningNanos / 1_000_000L, _pruningNanos * 100d / _elapsedNanos,
                         _intermediateHittingSets
                 ));
             }

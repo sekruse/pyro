@@ -253,6 +253,7 @@ public class ProfilingContext extends DependencyConsumer {
         public final AtomicLong numTrickleDowns = new AtomicLong(0L);
 
         public final AtomicLong hittingSetNanos = new AtomicLong(0L);
+        public final AtomicLong hittingSetPruningNanos = new AtomicLong(0L);
         public final AtomicLong errorCalculationNanos = new AtomicLong(0L);
         public final AtomicLong samplingNanos = new AtomicLong(0L);
         public final AtomicLong errorEstimationNanos = new AtomicLong(0L);
@@ -294,6 +295,7 @@ public class ProfilingContext extends DependencyConsumer {
             out.printf("Error estimation:                                                %,10.3f s (%.2f%%)\n", errorEstimationNanos.get() / 1e9d, getRuntimePercentage(errorEstimationNanos.get() * 1e-6));
             out.printf("Error calculation:                                               %,10.3f s (%.2f%%)\n", errorCalculationNanos.get() / 1e9d, getRuntimePercentage(errorCalculationNanos.get() * 1e-6));
             out.printf("Hitting sets:                                                    %,10.3f s (%.2f%%)\n", hittingSetNanos.get() / 1e9d, getRuntimePercentage(hittingSetNanos.get() * 1e-6));
+            out.printf(" Hitting set pruning:                                            %,10.3f s (%.2f%%)\n", hittingSetPruningNanos.get() / 1e9d, getRuntimePercentage(hittingSetPruningNanos.get() * 1e-6));
             out.printf("- -Counts- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - \n");
             out.printf("Sampling:                                                        %,10d #\n", numSamplings.get());
             out.printf("Error estimation:                                                %,10d #\n", numErrorEstimations.get());

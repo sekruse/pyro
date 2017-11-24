@@ -264,6 +264,7 @@ public class SearchSpace implements Serializable {
             // Create and store the launchPads.
             for (Vertical escaping : hittingSet) {
                 Vertical escapedLaunchPadVertical = launchPad.union(escaping);
+                assert pruningSupersets.stream().noneMatch(pruningSuperset -> pruningSuperset.contains(escapedLaunchPadVertical));
                 DependencyCandidate escapedLaunchPad = strategy.createDependencyCandidate(escapedLaunchPadVertical);
                 if (logger.isTraceEnabled()) logger.trace("  Escaped: {}", strategy.format(escapedLaunchPadVertical));
                 this.launchPads.add(escapedLaunchPad);
