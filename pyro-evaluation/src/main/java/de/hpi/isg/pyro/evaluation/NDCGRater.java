@@ -125,6 +125,7 @@ public class NDCGRater {
 
             // Load and sort all the partial FDs.
             List<PartialFunctionalDependency> fds = new ArrayList<>(fdConstraintCollection.getConstraints());
+            fds.removeIf(fd -> Double.isNaN(fd.getScore()));
             fds.sort(Comparator.comparing(PartialFunctionalDependency::getScore).reversed());
 
             // Go through all the FDs and rate them.
