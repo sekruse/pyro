@@ -32,7 +32,7 @@ public class FdTree {
      * Adds (a single occurrence of) a new FD.
      *
      * @param lhs the attributes (expressed by integers) of the FD's LHS
-     * @param lhs the attributes (expressed by integers) of the FD's LHS
+     * @param rhs the attributes (expressed by integers) of the FD's RHS
      */
     public void add(BitSet lhs, BitSet rhs) {
         this.root.add(lhs, 0, rhs, 1L);
@@ -362,9 +362,12 @@ public class FdTree {
         /**
          * Removes FDs generalizing {@code lhs} &#8594; {@code rhs}.
          *
-         * @param lhs             the FD's LHS in terms of attribute indices
-         * @param rhs             the FD's RHS as attribute index
-         * @param specializations collects the LHS of any removed FD
+         * @param lhs               the FD's LHS in terms of attribute indices
+         * @param rhs               the FD's RHS as attribute index
+         * @param currentAttributes helper variable that keeps track of the currently visited attributes as the tree
+         *                          is traversed
+         * @param specializations   collects the LHS of any removed FD
+         * @return whether this instance has no more FDs and no more children
          */
         private void removeGeneralizations(BitSet lhs, BitSet currentAttributes, int rhs, Collection<BitSet> specializations) {
             // Check if we are on a dead end.
@@ -378,7 +381,9 @@ public class FdTree {
                 if (child != null) {
                     currentAttributes.set(nextAttribute);
                     child.removeGeneralizations(lhs, currentAttributes, rhs, specializations);
-                    // TODO: Actually remove nodes.
+                    if (child.isVoid()) {
+                        this.children[nextAttribute] = null;
+                    }
                     currentAttributes.clear(nextAttribute);
                 }
             }
@@ -397,6 +402,19 @@ public class FdTree {
                 }
                 if (!hasStillFds) this.hasFd[rhs] = false;
             }
+
+        }
+
+        /**
+         * Tells whether this instance has neither FDs nor children.
+         *
+         * @return whether this instance is empty
+         */
+        private boolean isVoid() {
+            for (int i = 0; i < FdTree.this.numAttributes; i++) {
+                if (this.hasFd[i] || this.occurrences[i] > 0 || this.children[i] != null) return false;
+            }
+            return true;
         }
 
         /**

@@ -73,17 +73,39 @@ public class FdepX
         // Load the input file.
         this.profilingData.overallMillis = System.currentTimeMillis();
         this.profilingData.initializationMillis = System.currentTimeMillis();
-        ArrayList<List<String>> relation = new ArrayList<>();
+        ArrayList<List<String>> relation;
         RelationSchema relationSchema;
         try {
             try (RelationalInput relationalInput = this.inputGenerator.generateNewCopy()) {
                 relationSchema = new RelationSchema(relationalInput.relationName(), this.configuration.isNullEqualNull);
                 for (String columnName : relationalInput.columnNames()) {
                     relationSchema.appendColumn(columnName);
+                    if (this.configuration.maxCols > 0 && relationSchema.getNumColumns() >= this.configuration.maxCols) {
+                        break;
+                    }
                 }
-                while (relationalInput.hasNext()) {
-                    List<String> row = relationalInput.next();
-                    relation.add(row);
+                if (this.configuration.maxRows > 0) {
+                    relation = new ArrayList<>(this.configuration.maxRows);
+                    final Random random = new Random(23);
+                    int numSeenRows = 0;
+                    while (relationalInput.hasNext()) {
+                        List<String> row = relationalInput.next();
+                        if (numSeenRows < this.configuration.maxRows) {
+                            relation.add(projectTuple(row, relationSchema.getNumColumns()));
+                        } else {
+                            int position = random.nextInt(numSeenRows + 1);
+                            if (position < this.configuration.maxRows) {
+                                relation.set(position, projectTuple(row, relationSchema.getNumColumns()));
+                            }
+                        }
+                        numSeenRows++;
+                    }
+                } else {
+                    relation = new ArrayList<>();
+                    while (relationalInput.hasNext()) {
+                        List<String> row = projectTuple(relationalInput.next(), relationSchema.getNumColumns());
+                        relation.add(row);
+                    }
                 }
                 if (relation.isEmpty()) return;
             }
@@ -275,6 +297,16 @@ public class FdepX
         for (int i = columnIndices.nextSetBit(0);
              i != -1;
              i = columnIndices.nextSetBit(i + 1)) {
+            projection.add(tuple.get(i));
+        }
+        return projection;
+    }
+
+
+    private static List<String> projectTuple(List<String> tuple, int numColumns) {
+        if (tuple.size() == numColumns) return tuple;
+        List<String> projection = new ArrayList<>(numColumns);
+        for (int i = 0; i < numColumns; i++) {
             projection.add(tuple.get(i));
         }
         return projection;

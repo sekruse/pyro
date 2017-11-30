@@ -14,6 +14,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 /**
  * Represents a relational table.
@@ -60,23 +61,43 @@ public class ColumnLayoutRelationData extends RelationData {
             }
 
             // Iterate the data and fill the column vectors.
-            long rowNum = 0L;
+            int rowNum = 0;
+            final Random random = new Random(23);
             while (relationalInput.hasNext()) {
                 final List<String> row = relationalInput.next();
-                int index = 0;
-                for (String field : row) {
-                    if (field == null) {
-                        columnVectors.get(index).add(nullValueId);
-                    } else {
-                        int valueId = valueDictionary.getInt(field);
-                        if (valueId == unknownValueId) {
-                            valueDictionary.put(field, valueId = nextValueId++);
+                if (maxRows <= 0 || rowNum < maxRows) {
+                    int index = 0;
+                    for (String field : row) {
+                        if (field == null) {
+                            columnVectors.get(index).add(nullValueId);
+                        } else {
+                            int valueId = valueDictionary.getInt(field);
+                            if (valueId == unknownValueId) {
+                                valueDictionary.put(field, valueId = nextValueId++);
+                            }
+                            columnVectors.get(index).add(valueId);
                         }
-                        columnVectors.get(index).add(valueId);
+                        if (++index >= numColumns) break;
                     }
-                    if (++index >= numColumns) break;
+                } else {
+                    int position = random.nextInt(rowNum + 1);
+                    if (position < maxRows) {
+                        int index = 0;
+                        for (String field : row) {
+                            if (field == null) {
+                                columnVectors.get(index).set(position, nullValueId);
+                            } else {
+                                int valueId = valueDictionary.getInt(field);
+                                if (valueId == unknownValueId) {
+                                    valueDictionary.put(field, valueId = nextValueId++);
+                                }
+                                columnVectors.get(index).set(position, valueId);
+                            }
+                            if (++index >= numColumns) break;
+                        }
+                    }
                 }
-                if (maxRows > 0 && ++rowNum >= maxRows) break;
+                ++rowNum;
             }
             valueDictionary = null;
 
