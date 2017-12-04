@@ -2,6 +2,7 @@ package de.hpi.isg.pyro.core;
 
 import de.hpi.isg.pyro.model.Vertical;
 import de.hpi.isg.pyro.util.ConfidenceInterval;
+import de.hpi.isg.pyro.util.SerializableComparator;
 
 import java.io.Serializable;
 import java.util.BitSet;
@@ -14,7 +15,7 @@ import java.util.Objects;
  */
 public class DependencyCandidate implements Comparable<DependencyCandidate>, Serializable {
 
-    public static Comparator<DependencyCandidate> arityComparator = (tc1, tc2) -> {
+    public static SerializableComparator<DependencyCandidate> arityComparator = (tc1, tc2) -> {
         // Primarily order by the arity.
         int result = Integer.compare(tc1.vertical.getArity(), tc2.vertical.getArity());
         if (result != 0) return result;
@@ -23,7 +24,7 @@ public class DependencyCandidate implements Comparable<DependencyCandidate>, Ser
         return Double.compare(tc1.error.getMean(), tc2.error.getMean());
     };
 
-    public static Comparator<DependencyCandidate> meanErrorComparator = (tc1, tc2) -> {
+    public static SerializableComparator<DependencyCandidate> meanErrorComparator = (tc1, tc2) -> {
         // Primarily order by the error.
         int result = Double.compare(tc1.error.getMean(), tc2.error.getMean());
         if (result != 0) return result;
@@ -32,7 +33,7 @@ public class DependencyCandidate implements Comparable<DependencyCandidate>, Ser
         return Integer.compare(tc1.vertical.getArity(), tc2.vertical.getArity());
     };
 
-    public static Comparator<DependencyCandidate> minErrorComparator = (tc1, tc2) -> {
+    public static SerializableComparator<DependencyCandidate> minErrorComparator = (tc1, tc2) -> {
         // Primarily order by the error.
         int result = Double.compare(tc1.error.getMin(), tc2.error.getMin());
         if (result != 0) return result;
@@ -41,9 +42,9 @@ public class DependencyCandidate implements Comparable<DependencyCandidate>, Ser
         return Integer.compare(tc1.vertical.getArity(), tc2.vertical.getArity());
     };
 
-    public static Comparator<DependencyCandidate> fullErrorArityComparator = DependencyCandidate::compareTo;
+    public static SerializableComparator<DependencyCandidate> fullErrorArityComparator = DependencyCandidate::compareTo;
 
-    public static Comparator<DependencyCandidate> fullArityErrorComparator = (tc1, tc2) -> {
+    public static SerializableComparator<DependencyCandidate> fullArityErrorComparator = (tc1, tc2) -> {
         // Primarily order by the error.
         int result = Double.compare(tc1.error.getMean(), tc2.error.getMean());
         if (result != 0) return result;
