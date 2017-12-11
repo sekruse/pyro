@@ -40,15 +40,9 @@
                 <logging.scope>compile</logging.scope>
             </properties>
         </profile>
-        <!-- Build profile for pyro-akka. -->
+        <!-- Profile to create a distribution. -->
         <profile>
-            <id>akka-distro</id>
-            <modules>
-                <module>pyro-distro</module>
-            </modules>
-        </profile>
-        <profile>
-            <id>metanome-distro</id>
+            <id>distro</id>
             <modules>
                 <module>pyro-distro</module>
             </modules>
@@ -120,14 +114,9 @@
                 <version>${metanome.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-core</artifactId>
-                <version>2.7.1</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>2.7.1</version>
+                <groupId>de.metanome</groupId>
+                <artifactId>metanome-cli</artifactId>
+                <version>1.1.1-SNAPSHOT</version>
             </dependency>
 
             <!-- Metacrate -->
@@ -226,24 +215,6 @@
                 <groupId>com.google.protobuf</groupId>
                 <artifactId>protobuf-java</artifactId>
                 <version>2.5.0</version>
-            </dependency>
-
-            <!-- Hadoop -->
-            <dependency>
-                <groupId>org.apache.hadoop</groupId>
-                <artifactId>hadoop-hdfs</artifactId>
-                <version>2.6.0</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.hadoop</groupId>
-                <artifactId>hadoop-common</artifactId>
-                <version>2.6.0</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.slf4j</groupId>
-                        <artifactId>slf4j-log4j12</artifactId>
-                    </exclusion>
-                </exclusions>
             </dependency>
 
             <!-- Testing -->
