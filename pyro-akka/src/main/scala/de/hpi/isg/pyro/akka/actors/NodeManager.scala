@@ -14,7 +14,8 @@ import de.hpi.isg.pyro.akka.algorithms.Pyro.{HdfsInputMethod, InputMethod, Local
 import de.hpi.isg.pyro.akka.utils.AkkaUtils
 import de.hpi.isg.pyro.core.{Configuration, ProfilingContext, SearchSpace}
 import de.hpi.isg.pyro.model.{ColumnLayoutRelationData, PartialFD, PartialKey}
-import de.hpi.isg.pyro.util.{HdfsInputGenerator, Parallel}
+import de.hpi.isg.pyro.util.Parallel
+import de.metanome.cli.HdfsInputGenerator
 import de.metanome.algorithm_integration.input.RelationalInputGenerator
 import de.metanome.backend.input.file.DefaultFileInputGenerator
 import de.hpi.isg.pyro.akka.utils.JavaScalaCompatibility._

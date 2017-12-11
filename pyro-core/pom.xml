@@ -31,7 +31,6 @@
         <dependency>
             <groupId>de.hpi.isg</groupId>
             <artifactId>mdms-clients</artifactId>
-            <version>${metacrate.version}</version>
         </dependency>
         <dependency>
             <groupId>it.unimi.dsi</groupId>
@@ -44,16 +43,6 @@
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
-        </dependency>
-
-        <!-- Hadoop -->
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-hdfs</artifactId>
         </dependency>
 
         <!-- Logging -->

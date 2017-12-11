@@ -53,6 +53,10 @@
             <groupId>de.metanome</groupId>
             <artifactId>backend</artifactId>
         </dependency>
+        <dependency>
+            <groupId>de.metanome</groupId>
+            <artifactId>metanome-cli</artifactId>
+        </dependency>
 
         <!--Akka-->
         <dependency>
