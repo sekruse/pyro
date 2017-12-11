@@ -105,7 +105,9 @@ public class FdG1Strategy extends DependencyStrategy {
     }
 
     private double calculateG1(double numViolatingTuplePairs) {
-        double g1 = numViolatingTuplePairs / this.context.relationData.getNumTuplePairs();
+        long numTuplePairs = this.context.relationData.getNumTuplePairs();
+        if (numTuplePairs == 0) return 0d;
+        double g1 = numViolatingTuplePairs / numTuplePairs;
         // We truncate some precision here to avoid small numerical flaws to affect the result.
         return PartialFdScoring.round(g1);
     }

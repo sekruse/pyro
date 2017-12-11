@@ -47,7 +47,9 @@ public class KeyG1Strategy extends DependencyStrategy {
     }
 
     private double calculateKeyError(double numEqualityPairs) {
-        double keyError = numEqualityPairs / this.context.getRelationData().getNumTuplePairs();
+        long numTuplePairs = this.context.getRelationData().getNumTuplePairs();
+        if (numTuplePairs == 0) return 0d;
+        double keyError = numEqualityPairs / numTuplePairs;
         // We truncate some precision here to avoid small numerical flaws to affect the result.
         return PartialFdScoring.round(keyError);
     }
