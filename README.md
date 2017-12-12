@@ -8,6 +8,8 @@ Please find usage and installation instructions below.
 
 ## Installation
 
+*If you don't want to build Pyro yourself, have a look at existing [releases](https://github.com/sekruse/pyro/releases).*
+
 Before installing Pyro, you will need to build and install (via `mvn install`) some of its dependencies.
 
 Required:
