@@ -75,6 +75,9 @@
                                         <transformer
                                                 implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                             <mainClass>de.hpi.isg.pyro.akka.algorithms.Pyro</mainClass>
+                                            <manifestEntries>
+                                                <Algorithm-Bootstrap-Class>de.hpi.isg.pyro.algorithms.Pyro</Algorithm-Bootstrap-Class>
+                                            </manifestEntries>
                                         </transformer>
                                         <transformer
                                                 implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
