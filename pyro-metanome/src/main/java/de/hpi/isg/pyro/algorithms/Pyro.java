@@ -291,40 +291,46 @@ public class Pyro
 
         // If we are given a MetadataStore, then we bypass the result receivers, because they do not support
         // approximate/partial dependencies.
+        Object fdLock = new Object(), uccLock = new Object();
         this.fdConsumer = partialFD -> {
-            if (this.pfdConstraintcollection == null) {
-                String id = Optional.ofNullable(this.configuration.constraintCollectionPrefix).orElse("pyro-") + "fds";
-                ConstraintCollection<Object> constraintCollection = this.metadataStore.getConstraintCollection(id);
-                if (constraintCollection != null) {
-                    this.metadataStore.removeConstraintCollection(constraintCollection);
+            synchronized (fdLock) {
+                if (this.pfdConstraintcollection == null) {
+                    String id = Optional.ofNullable(this.configuration.constraintCollectionPrefix).orElse("pyro-") + "fds";
+                    ConstraintCollection<Object> constraintCollection = this.metadataStore.getConstraintCollection(id);
+                    if (constraintCollection != null) {
+                        this.metadataStore.removeConstraintCollection(constraintCollection);
+                    }
+                    this.pfdConstraintcollection = this.metadataStore.createConstraintCollection(
+                            id,
+                            String.format("Partial FDs from %s (%s)", this.getClass().getSimpleName(), new Date()),
+                            null,
+                            PartialFunctionalDependency.class,
+                            this.table
+                    );
                 }
-                this.pfdConstraintcollection = this.metadataStore.createConstraintCollection(
-                        id,
-                        String.format("Partial FDs from %s (%s)", this.getClass().getSimpleName(), new Date()),
-                        null,
-                        PartialFunctionalDependency.class,
-                        this.table
-                );
             }
             PartialFunctionalDependency partialFunctionalDependency = partialFD.toPartialFunctionalDependency(
                     this.metadataStore.getIdUtils(), this.table
             );
             this.pfdConstraintcollection.add(partialFunctionalDependency);
+
         };
         this.uccConsumer = partialKey -> {
-            if (this.puccConstraintcollection == null) {
-                String id = Optional.ofNullable(this.configuration.constraintCollectionPrefix).orElse("pyro-") + "uccs";
-                ConstraintCollection<Object> constraintCollection = this.metadataStore.getConstraintCollection(id);
-                if (constraintCollection != null) {
-                    this.metadataStore.removeConstraintCollection(constraintCollection);
+            synchronized (uccLock) {
+                if (this.puccConstraintcollection == null) {
+                    String id = Optional.ofNullable(this.configuration.constraintCollectionPrefix).orElse("pyro-") + "uccs";
+                    ConstraintCollection<Object> constraintCollection = this.metadataStore.getConstraintCollection(id);
+                    if (constraintCollection != null) {
+                        this.metadataStore.removeConstraintCollection(constraintCollection);
+                    }
+                    this.puccConstraintcollection = this.metadataStore.createConstraintCollection(
+                            id,
+                            String.format("Partial UCCs from %s (%s)", this.getClass().getSimpleName(), new Date()),
+                            null,
+                            PartialUniqueColumnCombination.class,
+                            this.table
+                    );
                 }
-                this.puccConstraintcollection = this.metadataStore.createConstraintCollection(
-                        id,
-                        String.format("Partial UCCs from %s (%s)", this.getClass().getSimpleName(), new Date()),
-                        null,
-                        PartialUniqueColumnCombination.class,
-                        this.table
-                );
             }
             PartialUniqueColumnCombination partialUniqueColumnCombination = partialKey.toPartialUniqueColumnCombination(
                     this.metadataStore.getIdUtils(), this.table
