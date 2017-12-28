@@ -359,7 +359,9 @@ public class SearchSpace implements Serializable {
 
                 } else {
                     // If we are not confident that we do not have a dependency, then we better check our candidate.
-                    error = strategy.calculateError(traversalCandidate.vertical);
+                    error = this.context.configuration.isEstimateOnly ?
+                            traversalCandidate.error.getMean() :
+                            strategy.calculateError(traversalCandidate.vertical);
                     double errorDiff = error - traversalCandidate.error.getMean();
                     this.context.profilingData.errorRmse.addAndGet(errorDiff * errorDiff);
                     this.context.profilingData.errorRmseCounter.incrementAndGet();
@@ -646,7 +648,9 @@ public class SearchSpace implements Serializable {
             // We don't check whether it's a known dependency, because if so, it could not be an alleged maximal non-dependency.
 
             // Check and evaluate the candidate.
-            double error = strategy.calculateError(allegedMaxNonDep);
+            double error = this.context.configuration.isEstimateOnly ?
+                    strategy.createDependencyCandidate(allegedMaxNonDep).error.getMean() :
+                    strategy.calculateError(allegedMaxNonDep);
             this.context.profilingData.verifyErrorCalculations.incrementAndGet();
             boolean isNonDep = error > strategy.minNonDependencyError;
             if (logger.isTraceEnabled())
