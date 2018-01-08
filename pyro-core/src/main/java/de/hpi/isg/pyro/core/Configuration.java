@@ -58,7 +58,7 @@ public class Configuration extends AbstractPFDConfiguration {
 
     @Parameter(names = "--estimateConfidence", description = "p-value for confidence intervals")
     @MetanomeProperty
-    public double estimateConfidence = 0.9;
+    public double estimateConfidence = Double.NaN;
 
     @Parameter(names = "--randomAscendThreads", description = "number of threads on a single search space that cause a switch to a random ascend strategy")
     @MetanomeProperty

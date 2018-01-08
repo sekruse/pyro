@@ -61,9 +61,9 @@ public abstract class AgreeSetSample {
     /**
      * Create a new instance.
      *
-     * @param relationData   for that the correlation estimates should be provided
-     * @param sampleSize the number of tuple pairs to sample
-     * @param random     an existing {@link Random} to introduce entropy or {@code null}
+     * @param relationData for that the correlation estimates should be provided
+     * @param sampleSize   the number of tuple pairs to sample
+     * @param random       an existing {@link Random} to introduce entropy or {@code null}
      * @return the new instance
      */
     protected static <T extends AgreeSetSample> T createFor(ColumnLayoutRelationData relationData, int sampleSize, Random random,
@@ -345,14 +345,17 @@ public abstract class AgreeSetSample {
     public ConfidenceInterval estimateAgreements(Vertical agreement, double confidence) {
         assert agreement.contains(this.focus);
 
-        if (this.populationSize == 0) return new ConfidenceInterval(0, 0);
+        if (this.populationSize == 0) return new ConfidenceInterval(0, 0, 0);
 
         // Count the sampled tuples agreeing as requested.
         long numHits = this.getNumAgreeSupersets(agreement);
         double sampleRatio = numHits / (double) this.sampleSize;
-        if (this.isExact()) return new ConfidenceInterval(
-                this.ratioToRelationRatio(sampleRatio), this.ratioToRelationRatio(sampleRatio)
-        );
+        double relationRatio = this.ratioToRelationRatio(sampleRatio);
+        if (this.isExact() || Double.isNaN(confidence)) {
+            return new ConfidenceInterval(
+                    relationRatio, relationRatio, relationRatio
+            );
+        }
 
         // Calculate a confidence interval with smoothing (one counter-example) and z-score.
         NormalDistribution normalDistribution = new NormalDistribution();
@@ -362,7 +365,7 @@ public abstract class AgreeSetSample {
         double minRatio = Math.max(sampleRatio - z * stddevPositiveTuples, calculateNonNegativeFraction(numHits, this.relationData.getNumTuplePairs()));
         double maxRatio = sampleRatio + z * stddevPositiveTuples;
 
-        return new ConfidenceInterval(this.ratioToRelationRatio(minRatio), this.ratioToRelationRatio(maxRatio));
+        return new ConfidenceInterval(this.ratioToRelationRatio(minRatio), relationRatio, this.ratioToRelationRatio(maxRatio));
     }
 
     /**
@@ -393,15 +396,18 @@ public abstract class AgreeSetSample {
     public ConfidenceInterval estimateMixed(Vertical agreement, Vertical disagreement, double confidence) {
         assert agreement.contains(this.focus);
 
-        if (this.populationSize == 0) return new ConfidenceInterval(0, 0);
+        if (this.populationSize == 0) return new ConfidenceInterval(0, 0, 0);
 
         // Count the sampled tuples agreeing as requested.
         long numHits = this.getNumAgreeSupersets(agreement, disagreement);
         double sampleRatio = numHits / (double) this.sampleSize;
+        double relationRatio = this.ratioToRelationRatio(sampleRatio);
 
-        if (this.isExact()) return new ConfidenceInterval(
-                this.ratioToRelationRatio(sampleRatio), this.ratioToRelationRatio(sampleRatio)
-        );
+        if (this.isExact() || Double.isNaN(confidence)) {
+            return new ConfidenceInterval(
+                    relationRatio, relationRatio, relationRatio
+            );
+        }
 
         // Calculate a confidence interval with smoothing (one counter-example) and z-score.
         NormalDistribution normalDistribution = new NormalDistribution();
@@ -413,6 +419,7 @@ public abstract class AgreeSetSample {
 
         return new ConfidenceInterval(
                 this.ratioToRelationRatio(minRatio),
+                relationRatio,
                 this.ratioToRelationRatio(maxRatio)
         );
     }
@@ -451,7 +458,7 @@ public abstract class AgreeSetSample {
     public ConfidenceInterval estimateConditionalDisagreements(Vertical agreement, Vertical disagreement, double confidence) {
         assert agreement.contains(this.focus);
 
-        if (this.populationSize == 0) return new ConfidenceInterval(0, 0);
+        if (this.populationSize == 0) return new ConfidenceInterval(0, 0, 0);
 
         // Approach 1: Hierarchical sampling.
         // Count the sampled agree sets matching the agreement.
@@ -461,8 +468,8 @@ public abstract class AgreeSetSample {
         double sampleRatio = (subsampleSize == 0d) ? 0d : (numMatches / (double) subsampleSize);
 
         // For exact samples, immediately return the value.
-        if (this.isExact()) {
-            return new ConfidenceInterval(sampleRatio, sampleRatio);
+        if (this.isExact() || Double.isNaN(confidence)) {
+            return new ConfidenceInterval(sampleRatio, sampleRatio, sampleRatio);
         }
 
         // Count the sampled agree sets agreeing and disagreeing as requested.
@@ -478,6 +485,7 @@ public abstract class AgreeSetSample {
         // Create our confidence interval.
         return new ConfidenceInterval(
                 Math.min(sampleRatio - z * stddev, calculateNonNegativeFraction(numMatches, this.populationSize)),
+                sampleRatio,
                 sampleRatio + z * stddev
         );
     }

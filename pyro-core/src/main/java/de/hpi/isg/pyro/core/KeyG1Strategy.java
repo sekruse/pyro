@@ -57,6 +57,7 @@ public class KeyG1Strategy extends DependencyStrategy {
     private ConfidenceInterval calculateKeyError(ConfidenceInterval estimatedEqualityPairs) {
         return new ConfidenceInterval(
                 this.calculateKeyError(estimatedEqualityPairs.getMin()),
+                this.calculateKeyError(estimatedEqualityPairs.getMean()),
                 this.calculateKeyError(estimatedEqualityPairs.getMax())
         );
     }
@@ -70,11 +71,11 @@ public class KeyG1Strategy extends DependencyStrategy {
             double keyError = this.calculateKeyError((long) pli.getNep());
             this.context.profilingData.errorCalculationNanos.addAndGet(System.nanoTime() - startNanos);
             this.context.profilingData.numErrorCalculations.incrementAndGet();
-            return new DependencyCandidate(vertical, new ConfidenceInterval(keyError, keyError), true);
+            return new DependencyCandidate(vertical, new ConfidenceInterval(keyError), true);
         }
 
         if (this.context.agreeSetSamples == null) {
-            return new DependencyCandidate(vertical, new ConfidenceInterval(0, 1), false);
+            return new DependencyCandidate(vertical, new ConfidenceInterval(0, .5, 1), false);
         }
 
         // Find the best available correlation provider.

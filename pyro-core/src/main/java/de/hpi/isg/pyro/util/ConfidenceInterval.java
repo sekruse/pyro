@@ -7,13 +7,19 @@ import java.io.Serializable;
  */
 public class ConfidenceInterval implements Serializable {
 
-    private final double min, max;
+    private final double min, mean, max;
 
-    public ConfidenceInterval(double min, double max) {
-        if (!(min <= max)) {
-            throw new IllegalArgumentException(String.format("Illegal interval bounds: (%e, %e)", min, max));
+
+    public ConfidenceInterval(double value) {
+        this(value, value, value);
+    }
+
+    public ConfidenceInterval(double min, double mean, double max) {
+        if (!(min <= mean) || !(mean <= max)) {
+            throw new IllegalArgumentException(String.format("Illegal interval bounds: (%e, %e, %e)", min, mean, max));
         }
         this.min = min;
+        this.mean = mean;
         this.max = max;
     }
 
@@ -30,12 +36,12 @@ public class ConfidenceInterval implements Serializable {
     }
 
     public double get() {
-        assert this.min == this.max;
-        return this.min;
+        assert this.min == this.mean && this.mean == this.max;
+        return this.mean;
     }
 
     public ConfidenceInterval multiply(double scalar) {
-        return new ConfidenceInterval(this.min * scalar, this.max * scalar);
+        return new ConfidenceInterval(this.min * scalar, this.mean * scalar, this.max * scalar);
     }
 
     @Override

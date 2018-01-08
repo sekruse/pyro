@@ -38,7 +38,7 @@ public class FdG1Strategy extends DependencyStrategy {
         this.context.profilingData.numErrorCalculations.incrementAndGet();
         searchSpace.addLaunchPad(new DependencyCandidate(
                 this.context.relationData.getSchema().emptyVertical,
-                new ConfidenceInterval(zeroFdError, zeroFdError),
+                new ConfidenceInterval(zeroFdError),
                 true
         ));
 
@@ -115,6 +115,7 @@ public class FdG1Strategy extends DependencyStrategy {
     private ConfidenceInterval calculateG1(ConfidenceInterval numViolations) {
         return new ConfidenceInterval(
                 this.calculateG1(numViolations.getMin()),
+                this.calculateG1(numViolations.getMean()),
                 this.calculateG1(numViolations.getMax())
         );
     }
@@ -122,7 +123,7 @@ public class FdG1Strategy extends DependencyStrategy {
     @Override
     DependencyCandidate createDependencyCandidate(Vertical vertical) {
         if (this.context.agreeSetSamples == null) {
-            return new DependencyCandidate(vertical, new ConfidenceInterval(0, 1), false);
+            return new DependencyCandidate(vertical, new ConfidenceInterval(0, .5, 1), false);
         }
 
         // Find the best available correlation provider.

@@ -533,7 +533,7 @@ public class SearchSpace implements Serializable {
         // hoping that they are closer to the minimum dependencies.
         // TODO: See whether this really pays off.
         PriorityQueue<DependencyCandidate> peaks = new PriorityQueue<>(DependencyCandidate.arityComparator);
-        peaks.add(new DependencyCandidate(mainPeak, new ConfidenceInterval(mainPeakError, mainPeakError), true));
+        peaks.add(new DependencyCandidate(mainPeak, new ConfidenceInterval(mainPeakError), true));
 
         // Keep track of visited nodes, so as to visit no node twice.
         Set<Vertical> allegedNonDeps = new HashSet<>();
@@ -666,7 +666,7 @@ public class SearchSpace implements Serializable {
                 // entailed by our alleged minimal dependencies. Hence, the candidate becomes a new peak.
                 // Note in particular, that all missed minimal dependencies must be covered by any such false
                 // maximum non-dependency candidate.
-                peaks.add(new DependencyCandidate(allegedMaxNonDep, new ConfidenceInterval(error, error), true));
+                peaks.add(new DependencyCandidate(allegedMaxNonDep, new ConfidenceInterval(error), true));
             }
         }
 
@@ -826,7 +826,7 @@ public class SearchSpace implements Serializable {
                     // because we just falsified a parent.
                     double error = strategy.calculateError(minDepCandidate.vertical);
                     this.context.profilingData.trickleErrorCalculations.incrementAndGet();
-                    minDepCandidate = new DependencyCandidate(minDepCandidate.vertical, new ConfidenceInterval(error, error), true);
+                    minDepCandidate = new DependencyCandidate(minDepCandidate.vertical, new ConfidenceInterval(error), true);
                     if (error > strategy.minNonDependencyError) break;
                 }
             }
