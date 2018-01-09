@@ -81,7 +81,9 @@ public class VerticalMap<Value> implements Map<Vertical, Value>, Serializable {
 
     @Override
     public void putAll(Map<? extends Vertical, ? extends Value> m) {
-        throw new UnsupportedOperationException();
+        for (Entry<? extends Vertical, ? extends Value> entry : m.entrySet()) {
+            this.put(entry.getKey(), entry.getValue());
+        }
     }
 
     @Override

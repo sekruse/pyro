@@ -148,6 +148,20 @@ public class RelationSchema implements Serializable {
             Collection<Vertical> verticals,
             Predicate<Vertical> pruningFunction,
             ProfilingContext.ProfilingData profilingData) {
+        return this.calculateHittingSet(verticals, pruningFunction, profilingData, Collections.singleton(this.emptyVertical));
+    }
+    /**
+     * Calculate the minimum hitting set for the given {@code verticals}.
+     *
+     * @param verticals       whose minimum hitting set is requested
+     * @param pruningFunction tells whether an intermittent hitting set should be pruned
+     * @return the minimum hitting set
+     */
+    public Collection<Vertical> calculateHittingSet(
+            Collection<Vertical> verticals,
+            Predicate<Vertical> pruningFunction,
+            ProfilingContext.ProfilingData profilingData,
+            Collection<Vertical> initialHittingSetCandidates) {
 
         long _startNanos = System.nanoTime();
         int _intermediateHittingSets = 0;
@@ -158,7 +172,9 @@ public class RelationSchema implements Serializable {
         VerticalMap<Vertical> consolidatedVerticals = new VerticalMap<>(this);
 
         VerticalMap<Vertical> hittingSet = new VerticalMap<>(this);
-        hittingSet.put(this.emptyVertical, this.emptyVertical);
+        for (Vertical hittingSetCandidate : initialHittingSetCandidates) {
+            hittingSet.put(hittingSetCandidate, hittingSetCandidate);
+        }
 
         long _prepareNanos = System.nanoTime() - _startNanos;
         long _pruningNanos = 0L;

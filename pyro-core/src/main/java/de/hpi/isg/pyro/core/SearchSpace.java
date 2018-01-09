@@ -51,9 +51,9 @@ public class SearchSpace implements Serializable {
 
     final LinkedList<DependencyCandidate> deferredLaunchPads = new LinkedList<>();
 
-    final VerticalMap<Vertical> scope;
+    VerticalMap<Vertical> scope;
 
-    final double sampleBoost;
+    double sampleBoost;
 
     final int recursionDepth;
 
@@ -115,19 +115,72 @@ public class SearchSpace implements Serializable {
      * @param localVisitees known (non-)dependencies
      */
     private void discover(VerticalMap<VerticalInfo> localVisitees) {
-        while (!this.interruptFlag) {
-            final long startMillis = System.currentTimeMillis();
-            DependencyCandidate launchPad = this.pollLaunchPad(localVisitees);
-            if (localVisitees == null) {
-                this.context.profilingData.launchpadMillis.addAndGet(System.currentTimeMillis() - startMillis);
+        while (true) {
+            while (!this.interruptFlag) {
+                final long startMillis = System.currentTimeMillis();
+                DependencyCandidate launchPad = this.pollLaunchPad(localVisitees);
+                if (localVisitees == null) {
+                    this.context.profilingData.launchpadMillis.addAndGet(System.currentTimeMillis() - startMillis);
+                }
+                if (launchPad == null) break;
+
+                // Keep track of the visited dependency candidates to avoid duplicate visits and enable pruning.
+                localVisitees = localVisitees != null ? localVisitees : new VerticalMap<>(this.context.getSchema());
+                boolean isDependencyFound = this.ascend(launchPad, localVisitees);
+
+                this.returnLaunchPad(launchPad, !isDependencyFound);
             }
-            if (launchPad == null) break;
 
-            // Keep track of the visited dependency candidates to avoid duplicate visits and enable pruning.
-            localVisitees = localVisitees != null ? localVisitees : new VerticalMap<>(this.context.getSchema());
-            boolean isDependencyFound = this.ascend(launchPad, localVisitees);
+            // Check the alleged minimal dependencies by checking the corresponding maximal dependencies.
+            ArrayList<Vertical> dependencies = new ArrayList<>(this.globalVisitees.size());
+            for (Map.Entry<Vertical, VerticalInfo> entry : this.globalVisitees.entrySet()) {
+                // Test if this is a minimal dependency.
+                if (entry.getValue().isDependency && this.globalVisitees.getAnySubsetEntry(
+                        entry.getKey(),
+                        (k, v) -> v.isDependency && k.getArity() < entry.getKey().getArity()) == null
+                        ) {
+                    dependencies.add(entry.getKey());
+                }
+            }
+            Collection<Vertical> hittingSets = this.context.getSchema().calculateHittingSet(
+                    dependencies, null, this.context.profilingData
+            );
+            Vertical inversionScope = this.strategy.getIrrelevantColumns().invert();
+            int numDeps = 0, numNonDeps = 0;
+            this.scope = new VerticalMap<>(this.context.getSchema());
+            for (Vertical hittingSet : hittingSets) {
+                Vertical maxNonDepCandidate = hittingSet.invert(inversionScope);
+                if (isKnownNonDependency(maxNonDepCandidate, this.globalVisitees)) {
+//                System.out.printf("Skipping check of     %s.\n", maxNonDepCandidate);
+                    numNonDeps++;
+                    continue;
+                }
+                double error = this.strategy.calculateError(maxNonDepCandidate);
+                this.context.profilingData.verifyErrorCalculations.incrementAndGet();
+                if (error <= this.strategy.minNonDependencyError) {
+//                System.out.printf("Not a non-dependency: %s, error: %,03f.\n", maxNonDepCandidate, error);
+                    numDeps++;
+                    this.scope.put(maxNonDepCandidate, maxNonDepCandidate);
+                    this.globalVisitees.put(maxNonDepCandidate, VerticalInfo.forDependency());
+                } else {
+//                System.out.printf("Non-dependency:       %s, error: %,03f.\n", maxNonDepCandidate, error);
+                    numNonDeps++;
+                    this.globalVisitees.put(maxNonDepCandidate, VerticalInfo.forMaximalNonDependency());
+                }
+            }
+            System.out.printf("Non-dependency rate: %,d of %,d (= %,.03f%%)\n", numNonDeps, numDeps + numNonDeps, numNonDeps * 100d / (numDeps + numNonDeps));
 
-            this.returnLaunchPad(launchPad, !isDependencyFound);
+            if (!this.scope.isEmpty()) {
+                for (Vertical vertical : this.strategy.getIrrelevantColumns().invert().getColumns()) {
+                    this.addLaunchPad(this.strategy.createDependencyCandidate(vertical));
+                }
+                this.sampleBoost *= this.context.configuration.sampleBooster;
+            } else {
+                for (Vertical dependency : dependencies) {
+                    this.strategy.registerDependency(dependency, Double.NaN, this.context);
+                }
+                break;
+            }
         }
     }
 
@@ -159,8 +212,8 @@ public class SearchSpace implements Serializable {
             // TODO: Check if the launchPad can be estimated more accurately.
 
             // Make sure that the candidate is not subset-pruned, i.e., we already identified it to be a dependency.
-            if (isImpliedByMinDep(launchPad.vertical, globalVisitees)
-                    || (localVisitees != null && isImpliedByMinDep(launchPad.vertical, localVisitees))) {
+            if (isKnownDependency(launchPad.vertical, globalVisitees)
+                    || (localVisitees != null && isKnownDependency(launchPad.vertical, localVisitees))) {
                 // If it is subset-pruned, we can remove it.
                 // Note: We can remove the launch pad without synchronization.
                 if (logger.isTraceEnabled()) {
@@ -245,8 +298,8 @@ public class SearchSpace implements Serializable {
                     Vertical launchPadCandidate = launchPad.union(hittingSetCandidate);
 
                     // Check if the candidate is pruned.
-                    if ((localVisitees != null && isImpliedByMinDep(launchPadCandidate, localVisitees))
-                            || isImpliedByMinDep(launchPadCandidate, globalVisitees)) {
+                    if ((localVisitees != null && isKnownDependency(launchPadCandidate, localVisitees))
+                            || isKnownDependency(launchPadCandidate, globalVisitees)) {
                         return true;
                     }
 
@@ -304,7 +357,7 @@ public class SearchSpace implements Serializable {
 
     /**
      * Take a {@code launchPad} and extend it until we meet a dependency (or hit a maximum non-dependency). The start to
-     * {@link #trickleDown(Vertical, double, VerticalMap)}.
+     * {@link #trickleDown(DependencyCandidate, VerticalMap)}.
      *
      * @param launchPad     from which to ascend
      * @param localVisitees stores local dependencies and non-dependencies
@@ -323,7 +376,7 @@ public class SearchSpace implements Serializable {
 
         // Start the ascension towards a dependency or a (local) maximum non-dependency.
         DependencyCandidate traversalCandidate = launchPad;
-        double error;
+        boolean isTrickledDown;
         while (true) {
             if (logger.isTraceEnabled()) logger.trace("-> {}", strategy.format(traversalCandidate.vertical));
 
@@ -331,61 +384,22 @@ public class SearchSpace implements Serializable {
                 this.checkEstimate(strategy, traversalCandidate);
             }
 
-            // Primarily, check if we should operate on agree sets or PLIs.
-            if (traversalCandidate.isExact()) {
-                // If we have an exhaustive sample, we should operate upon the agree sets.
-                error = traversalCandidate.error.get();
+//            System.out.printf("[ASC] %s\n", traversalCandidate);
 
-                // Store the candidate's state.
-                final boolean canBeDependency = error <= strategy.maxDependencyError;
-                localVisitees.put(traversalCandidate.vertical, new VerticalInfo(
-                        canBeDependency,
-                        false,
-                        error
-                ));
-
-                // Check whether to stop the ascension.
-                if (canBeDependency) break;
-
-            } else { // We have no exact sample.
-                // Are we confident that this is _not_ a dependency?
-                if (traversalCandidate.error.getMin() > strategy.maxDependencyError) {
-                    // If we are confident that we do not have a key, than we skip the check.
-                    if (logger.isTraceEnabled()) logger.trace("   Skipping check for {} (estimated error: {}).",
-                            strategy.format(traversalCandidate.vertical),
-                            traversalCandidate.error
-                    );
-                    error = Double.NaN;
-
-                } else {
-                    // If we are not confident that we do not have a dependency, then we better check our candidate.
-                    error = this.context.configuration.isEstimateOnly ?
-                            traversalCandidate.error.getMean() :
-                            strategy.calculateError(traversalCandidate.vertical);
-                    double errorDiff = error - traversalCandidate.error.getMean();
-                    this.context.profilingData.errorRmse.addAndGet(errorDiff * errorDiff);
-                    this.context.profilingData.errorRmseCounter.incrementAndGet();
-                    this.context.profilingData.ascendErrorCalculations.incrementAndGet();
-
-                    // Store the candidate's state.
-                    localVisitees.put(traversalCandidate.vertical, new VerticalInfo(
-                            error <= strategy.maxDependencyError,
-                            false,
-                            error
-                    ));
-
-                    // Check whether to stop the ascension.
-                    if (error <= strategy.maxDependencyError) break;
-
+            // Do we think the candidate might be a dependency?
+            isTrickledDown = traversalCandidate.error.getMin() <= strategy.minNonDependencyError;
+            if (isTrickledDown) {
+                if (this.trickleDown(traversalCandidate, localVisitees)) {
+                    return true;
+                } else if (traversalCandidate.error.getMean() <= strategy.minNonDependencyError) {
                     // Potentially create a new agree set sample.
                     if (strategy.shouldResample(traversalCandidate.vertical, sampleBoost)) {
                         this.context.createFocusedSample(traversalCandidate.vertical, sampleBoost);
                     }
-
                 }
             }
 
-            // If we did not find a key, we try to discover further up.
+            // If we did not find a dependency (or did not suspect it), we try to discover further up.
             // Check if we can ascend in the first place.
             if (traversalCandidate.vertical.getArity() >= this.context.getRelationData().getNumColumns() - this.strategy.getNumIrrelevantColumns())
                 break;
@@ -407,7 +421,7 @@ public class SearchSpace implements Serializable {
                 }
 
                 // Make sure that the extended key is not subset-pruned.
-                boolean isSubsetPruned = isImpliedByMinDep(extendedVertical, globalVisitees);
+                boolean isSubsetPruned = isKnownDependency(extendedVertical, globalVisitees);
                 if (isSubsetPruned) {
                     continue;
                 }
@@ -429,51 +443,14 @@ public class SearchSpace implements Serializable {
             }
         } // Climbing
 
-        // Beware of situations, where we went all the way up without having verified the dependency error at all.
-        if (Double.isNaN(error)) {
-            // Evaluate the key error.
-            if (logger.isTraceEnabled())
-                logger.trace("   Hit the ceiling at {}.", strategy.format(traversalCandidate.vertical));
-            error = strategy.calculateError(traversalCandidate.vertical);
-            double errorDiff = error - traversalCandidate.error.getMean();
-            this.context.profilingData.errorRmse.addAndGet(errorDiff * errorDiff);
-            this.context.profilingData.errorRmseCounter.incrementAndGet();
-            this.context.profilingData.ceilingErrorCalculations.incrementAndGet();
-            if (logger.isTraceEnabled()) logger.trace("   Checking candidate... actual error: {}", error);
-        }
-
-        this.context.profilingData.ascensionHeight.addAndGet(traversalCandidate.vertical.getArity() - launchPad.vertical.getArity());
-        this.context.profilingData.ascendMillis.addAndGet(System.currentTimeMillis() - _startMillis);
-        this.context.profilingData.numAscends.incrementAndGet();
-
-        if (error <= strategy.maxDependencyError) {
-            // If we reached a desired key, then we need to minimize it now.
-            if (logger.isTraceEnabled())
-                logger.trace("   Key peak in climbing phase: e({})={} -> Need to minimize.", traversalCandidate.vertical, error);
-            this.trickleDown(traversalCandidate.vertical, error, localVisitees);
-
-            if (recursionDepth == 0) { // Top-level ascension?
-                assert scope == null;
-                // Add a minimal dependency token to prune both supersets and subsets.
-                globalVisitees.put(traversalCandidate.vertical, VerticalInfo.forMinimalDependency());
-            }
-
+        // Last call for a dependency.
+        if (!isTrickledDown && this.trickleDown(traversalCandidate, localVisitees)) {
             return true;
-
-        } else {
-            if (recursionDepth == 0) { // Top-level ascension?
-                assert scope == null;
-                globalVisitees.put(traversalCandidate.vertical, VerticalInfo.forMaximalNonDependency());
-                if (logger.isDebugEnabled())
-                    logger.debug("[---] {} is maximum non-dependency (err={}).", traversalCandidate.vertical, error);
-            } else {
-                localVisitees.put(traversalCandidate.vertical, VerticalInfo.forNonDependency());
-                if (logger.isDebugEnabled())
-                    logger.debug("      {} is local-maximum non-dependency (err={}).", traversalCandidate.vertical, error);
-            }
-
-            return false;
         }
+
+        // If we climbed all the way up, we ran into a maximum non-dependency.
+        this.globalVisitees.put(traversalCandidate.vertical, VerticalInfo.forMaximalNonDependency());
+        return false;
     }
 
     /**
@@ -501,14 +478,15 @@ public class SearchSpace implements Serializable {
     /**
      * Finds and registers minimal {@link PartialKey}s below the given {@code keyCandidate}.
      *
-     * @param mainPeak      potentially a partial key whose minimal partial keys are sought
-     * @param mainPeakError the error of the {@code keyCandidate} or {@link Double#NaN} if it is not known
-     * @param localVisitees known non-keys in the current search round
+     * @param mainPeakCandidate potentially a partial key whose minimal partial keys are sought
+     * @param localVisitees     known non-keys in the current search round
+     * @return whether the {@code mainPeakCandidate} really was a dependency
      */
-    private void trickleDown(Vertical mainPeak, double mainPeakError, VerticalMap<VerticalInfo> localVisitees) {
+    private boolean trickleDown(DependencyCandidate mainPeakCandidate, VerticalMap<VerticalInfo> localVisitees) {
         long _startMillis = System.currentTimeMillis();
 
-        if (logger.isDebugEnabled()) logger.debug("===== Trickling down from {} ======", strategy.format(mainPeak));
+        if (logger.isDebugEnabled())
+            logger.debug("===== Trickling down from {} ======", strategy.format(mainPeakCandidate.vertical));
 
         // Prepare to collect the (alleged) minimal and maximal (non-)dependencies.
         Set<Vertical> maximalNonDeps = new HashSet<>();
@@ -533,7 +511,7 @@ public class SearchSpace implements Serializable {
         // hoping that they are closer to the minimum dependencies.
         // TODO: See whether this really pays off.
         PriorityQueue<DependencyCandidate> peaks = new PriorityQueue<>(DependencyCandidate.arityComparator);
-        peaks.add(new DependencyCandidate(mainPeak, new ConfidenceInterval(mainPeakError), true));
+        peaks.add(mainPeakCandidate);
 
         // Keep track of visited nodes, so as to visit no node twice.
         Set<Vertical> allegedNonDeps = new HashSet<>();
@@ -594,160 +572,165 @@ public class SearchSpace implements Serializable {
                 // peak itself is a dependency. Hence, we remove it.
                 peaks.poll();
             } else {
-                this.context.profilingData.trickleDepth.addAndGet(mainPeak.getArity() - allegedMinDep.getArity());
+                this.context.profilingData.trickleDepth.addAndGet(mainPeakCandidate.vertical.getArity() - allegedMinDep.getArity());
             }
         } // hypothesize minimum dependencies
         if (logger.isDebugEnabled())
             logger.debug("* {} alleged minimum dependencies ({})", allegedMinDeps.size(), formatArityHistogram(allegedMinDeps));
 
-        // Register already-known-to-be-minimal dependencies.
-        int numUncertainMinDeps = 0;
-        for (Map.Entry<Vertical, VerticalInfo> entry : allegedMinDeps.entrySet()) {
-            Vertical allegedMinDep = entry.getKey();
-            VerticalInfo info = entry.getValue();
-            if (info.isExtremal && !globalVisitees.containsKey(allegedMinDep)) {
-                if (logger.isDebugEnabled()) logger.debug("[{}] Minimum dependency: {} (error={})",
-                        recursionDepth, strategy.format(allegedMinDep), info.error
-                );
-                globalVisitees.put(allegedMinDep, info);
-                strategy.registerDependency(allegedMinDep, info.error, this.context);
-            }
-            if (!info.isExtremal) numUncertainMinDeps++;
-        }
+        // Collect all dependencies as new min deps.
+
+        this.globalVisitees.putAll(allegedMinDeps);
+
+        return !allegedMinDeps.isEmpty();
+//        // Register already-known-to-be-minimal dependencies.
+//        int numUncertainMinDeps = 0;
+//        for (Map.Entry<Vertical, VerticalInfo> entry : allegedMinDeps.entrySet()) {
+//            Vertical allegedMinDep = entry.getKey();
+//            VerticalInfo info = entry.getValue();
+//            if (info.isExtremal && !globalVisitees.containsKey(allegedMinDep)) {
+//                if (logger.isDebugEnabled()) logger.debug("[{}] Minimum dependency: {} (error={})",
+//                        recursionDepth, strategy.format(allegedMinDep), info.error
+//                );
+//                globalVisitees.put(allegedMinDep, info);
+//                strategy.registerDependency(allegedMinDep, info.error, this.context);
+//            }
+//            if (!info.isExtremal) numUncertainMinDeps++;
+//        }
 
         // NB: We must NOT stop if all dependencies are known to be minimal because they might not be complete!
 
-        if (logger.isDebugEnabled()) logger.debug("* {}/{} alleged minimum dependencies might be non-minimal.",
-                numUncertainMinDeps, allegedMinDeps.size()
-        );
+//        if (logger.isDebugEnabled()) logger.debug("* {}/{} alleged minimum dependencies might be non-minimal.",
+//                numUncertainMinDeps, allegedMinDeps.size()
+//        );
 
         // We have an initial hypothesis about where the minimal dependencies are.
         // Now, we determine the corresponding maximal non-dependencies.
-        List<Vertical> allegedMaxNonDeps = this.context.getSchema()
-                .calculateHittingSet(allegedMinDeps.keySet(), null, this.context.profilingData)
-                .stream()
-                .map(minLeaveOutVertical -> minLeaveOutVertical.invert(mainPeak))
-                .collect(Collectors.toList());
-        if (logger.isDebugEnabled())
-            logger.debug("* {} alleged maximum non-dependencies ({})", allegedMaxNonDeps.size(), formatArityHistogram(allegedMaxNonDeps));
-
-        // Here, we check the consistency of all data structures.
-        assert allegedMinDeps.keySet().stream().allMatch(mainPeak::contains) : String.format("Illegal min deps: %s.", allegedMinDeps);
-        assert allegedMaxNonDeps.stream().allMatch(mainPeak::contains) : String.format("Illegal max non-deps: %s.", allegedMaxNonDeps);
-
-        // Validate the alleged maximal dependencies.
-        for (Vertical allegedMaxNonDep : allegedMaxNonDeps) {
-            // Is it the empty vertical?
-            if (allegedMaxNonDep.getArity() == 0) continue;
-            // Is it a known non-dep?
-            if (maximalNonDeps.contains(allegedMaxNonDep)
-                    || isKnownNonDependency(allegedMaxNonDep, localVisitees)
-                    || isKnownNonDependency(allegedMaxNonDep, globalVisitees)) {
-                continue;
-            }
-            // We don't check whether it's a known dependency, because if so, it could not be an alleged maximal non-dependency.
-
-            // Check and evaluate the candidate.
-            double error = this.context.configuration.isEstimateOnly ?
-                    strategy.createDependencyCandidate(allegedMaxNonDep).error.getMean() :
-                    strategy.calculateError(allegedMaxNonDep);
-            this.context.profilingData.verifyErrorCalculations.incrementAndGet();
-            boolean isNonDep = error > strategy.minNonDependencyError;
-            if (logger.isTraceEnabled())
-                logger.trace("* Alleged maximal non-dependency {}: non-dep?: {}, error: {}",
-                        strategy.format(allegedMaxNonDep), isNonDep, error);
-            if (isNonDep) {
-                // If the candidate is a non-dependency, it must be maximal (below the peak).
-                maximalNonDeps.add(allegedMaxNonDep);
-                localVisitees.put(allegedMaxNonDep, VerticalInfo.forNonDependency());
-
-            } else {
-                // If the candidate is not a non-dependency, then there must be a dependency below that is not in
-                // entailed by our alleged minimal dependencies. Hence, the candidate becomes a new peak.
-                // Note in particular, that all missed minimal dependencies must be covered by any such false
-                // maximum non-dependency candidate.
-                peaks.add(new DependencyCandidate(allegedMaxNonDep, new ConfidenceInterval(error), true));
-            }
-        }
-
-        if (peaks.isEmpty()) {
-            // When all maximal non-dependency candidates are correct (and, thus, we have no more peaks), we are done.
-            // We only need to register the previously uncertain minimum dependencies.
-            for (Map.Entry<Vertical, VerticalInfo> entry : allegedMinDeps.entrySet()) {
-                Vertical allegedMinDep = entry.getKey();
-                VerticalInfo info = entry.getValue();
-                if (!info.isExtremal && !globalVisitees.containsKey(allegedMinDep)) {
-                    if (logger.isDebugEnabled()) logger.debug("[{}] Minimum dependency: {} (error={})",
-                            recursionDepth, strategy.format(allegedMinDep), info.error
-                    );
-                    info.isExtremal = true;
-                    globalVisitees.put(allegedMinDep, info);
-                    strategy.registerDependency(allegedMinDep, info.error, this.context);
-                }
-            }
-
-        } else {
-            // Otherwise, we have to continue our search.
-            // For that matter, we restrict the search space and re-start the discovery there.
-            this.context.profilingData.mispredictions.incrementAndGet();
-            if (logger.isDebugEnabled())
-                logger.debug("* {} new peaks ({}).", peaks.size(), formatArityHistogram(peaks.stream().map(dc -> dc.vertical).collect(Collectors.toList())));
-
-            // Define the upper bound for the following dependency search: all the alleged minimal dependencies.
-            VerticalMap<Vertical> newScope = new VerticalMap<>(this.context.getSchema());
-            for (DependencyCandidate peak : peaks) {
-                newScope.put(peak.vertical, peak.vertical);
-            }
-
-            // We did not do a good enough job regarding the estimation. Therefore, increase the sampling size.
-            double newSampleBoost = sampleBoost * this.sampleBoost;
-            if (logger.isDebugEnabled()) logger.debug("* Increasing sampling boost factor to {}.", newSampleBoost);
-
-            SearchSpace nestedSearchSpace = new SearchSpace(-1, this.strategy,
-                    newScope,
-                    this.globalVisitees,
-                    this.context.getSchema(),
-                    this.launchPads.comparator(),
-                    this.recursionDepth + 1,
-                    this.sampleBoost * this.context.configuration.sampleBooster
-            );
-            nestedSearchSpace.setContext(this.context);
-
-            // Define the lower bound for the following dependency search.
-            Set<Column> scopeColumns = newScope.keySet().stream()
-                    .flatMap(vertical -> Arrays.stream(vertical.getColumns()))
-                    .collect(Collectors.toSet());
-            for (Column scopeColumn : scopeColumns) {
-                nestedSearchSpace.addLaunchPad(strategy.createDependencyCandidate(scopeColumn));
-            }
-            long _breakStartMillis = System.currentTimeMillis();
-            nestedSearchSpace.discover(localVisitees);
-            long recursionMillis = System.currentTimeMillis() - _breakStartMillis;
-            if (this.recursionDepth == 1) {
-                this.context.profilingData.recursionMillis.addAndGet(recursionMillis);
-            }
-            _startMillis += recursionMillis; // Act as if we started later...
-
-            // Finally, we need to check whether some of our alleged minimal dependencies are actually minimal.
-            // We have to check them, because they lie outside of the scope and, thus, cannot be discovered in the
-            // above recursion.
-            for (Map.Entry<Vertical, VerticalInfo> entry : allegedMinDeps.entrySet()) {
-                Vertical allegedMinDep = entry.getKey();
-                VerticalInfo info = entry.getValue();
-                if (!isImpliedByMinDep(allegedMinDep, globalVisitees)) {
-                    if (logger.isDebugEnabled())
-                        logger.debug("[{}] Minimum dependency: {} (error={}) (was right after all)",
-                                recursionDepth, strategy.format(allegedMinDep), info.error
-                        );
-                    info.isExtremal = true;
-                    globalVisitees.put(allegedMinDep, info);
-                    strategy.registerDependency(allegedMinDep, info.error, this.context);
-                }
-            }
-        }
-
-        this.context.profilingData.trickleDownMillis.addAndGet(System.currentTimeMillis() - _startMillis);
-        this.context.profilingData.numTrickleDowns.incrementAndGet();
+//        List<Vertical> allegedMaxNonDeps = this.context.getSchema()
+//                .calculateHittingSet(allegedMinDeps.keySet(), null, this.context.profilingData)
+//                .stream()
+//                .map(minLeaveOutVertical -> minLeaveOutVertical.invert(mainPeak))
+//                .collect(Collectors.toList());
+//        if (logger.isDebugEnabled())
+//            logger.debug("* {} alleged maximum non-dependencies ({})", allegedMaxNonDeps.size(), formatArityHistogram(allegedMaxNonDeps));
+//
+//        // Here, we check the consistency of all data structures.
+//        assert allegedMinDeps.keySet().stream().allMatch(mainPeak::contains) : String.format("Illegal min deps: %s.", allegedMinDeps);
+//        assert allegedMaxNonDeps.stream().allMatch(mainPeak::contains) : String.format("Illegal max non-deps: %s.", allegedMaxNonDeps);
+//
+//        // Validate the alleged maximal dependencies.
+//        for (Vertical allegedMaxNonDep : allegedMaxNonDeps) {
+//            // Is it the empty vertical?
+//            if (allegedMaxNonDep.getArity() == 0) continue;
+//            // Is it a known non-dep?
+//            if (maximalNonDeps.contains(allegedMaxNonDep)
+//                    || isKnownNonDependency(allegedMaxNonDep, localVisitees)
+//                    || isKnownNonDependency(allegedMaxNonDep, globalVisitees)) {
+//                continue;
+//            }
+//            // We don't check whether it's a known dependency, because if so, it could not be an alleged maximal non-dependency.
+//
+//            // Check and evaluate the candidate.
+//            double error = this.context.configuration.isEstimateOnly ?
+//                    strategy.createDependencyCandidate(allegedMaxNonDep).error.getMean() :
+//                    strategy.calculateError(allegedMaxNonDep);
+//            this.context.profilingData.verifyErrorCalculations.incrementAndGet();
+//            boolean isNonDep = error > strategy.minNonDependencyError;
+//            if (logger.isTraceEnabled())
+//                logger.trace("* Alleged maximal non-dependency {}: non-dep?: {}, error: {}",
+//                        strategy.format(allegedMaxNonDep), isNonDep, error);
+//            if (isNonDep) {
+//                // If the candidate is a non-dependency, it must be maximal (below the peak).
+//                maximalNonDeps.add(allegedMaxNonDep);
+//                localVisitees.put(allegedMaxNonDep, VerticalInfo.forNonDependency());
+//
+//            } else {
+//                // If the candidate is not a non-dependency, then there must be a dependency below that is not in
+//                // entailed by our alleged minimal dependencies. Hence, the candidate becomes a new peak.
+//                // Note in particular, that all missed minimal dependencies must be covered by any such false
+//                // maximum non-dependency candidate.
+//                peaks.add(new DependencyCandidate(allegedMaxNonDep, new ConfidenceInterval(error), true));
+//            }
+//        }
+//
+//        if (peaks.isEmpty()) {
+//            // When all maximal non-dependency candidates are correct (and, thus, we have no more peaks), we are done.
+//            // We only need to register the previously uncertain minimum dependencies.
+//            for (Map.Entry<Vertical, VerticalInfo> entry : allegedMinDeps.entrySet()) {
+//                Vertical allegedMinDep = entry.getKey();
+//                VerticalInfo info = entry.getValue();
+//                if (!info.isExtremal && !globalVisitees.containsKey(allegedMinDep)) {
+//                    if (logger.isDebugEnabled()) logger.debug("[{}] Minimum dependency: {} (error={})",
+//                            recursionDepth, strategy.format(allegedMinDep), info.error
+//                    );
+//                    info.isExtremal = true;
+//                    globalVisitees.put(allegedMinDep, info);
+//                    strategy.registerDependency(allegedMinDep, info.error, this.context);
+//                }
+//            }
+//
+//        } else {
+//            // Otherwise, we have to continue our search.
+//            // For that matter, we restrict the search space and re-start the discovery there.
+//            this.context.profilingData.mispredictions.incrementAndGet();
+//            if (logger.isDebugEnabled())
+//                logger.debug("* {} new peaks ({}).", peaks.size(), formatArityHistogram(peaks.stream().map(dc -> dc.vertical).collect(Collectors.toList())));
+//
+//            // Define the upper bound for the following dependency search: all the alleged minimal dependencies.
+//            VerticalMap<Vertical> newScope = new VerticalMap<>(this.context.getSchema());
+//            for (DependencyCandidate peak : peaks) {
+//                newScope.put(peak.vertical, peak.vertical);
+//            }
+//
+//            // We did not do a good enough job regarding the estimation. Therefore, increase the sampling size.
+//            double newSampleBoost = sampleBoost * this.sampleBoost;
+//            if (logger.isDebugEnabled()) logger.debug("* Increasing sampling boost factor to {}.", newSampleBoost);
+//
+//            SearchSpace nestedSearchSpace = new SearchSpace(-1, this.strategy,
+//                    newScope,
+//                    this.globalVisitees,
+//                    this.context.getSchema(),
+//                    this.launchPads.comparator(),
+//                    this.recursionDepth + 1,
+//                    this.sampleBoost * this.context.configuration.sampleBooster
+//            );
+//            nestedSearchSpace.setContext(this.context);
+//
+//            // Define the lower bound for the following dependency search.
+//            Set<Column> scopeColumns = newScope.keySet().stream()
+//                    .flatMap(vertical -> Arrays.stream(vertical.getColumns()))
+//                    .collect(Collectors.toSet());
+//            for (Column scopeColumn : scopeColumns) {
+//                nestedSearchSpace.addLaunchPad(strategy.createDependencyCandidate(scopeColumn));
+//            }
+//            long _breakStartMillis = System.currentTimeMillis();
+//            nestedSearchSpace.discover(localVisitees);
+//            long recursionMillis = System.currentTimeMillis() - _breakStartMillis;
+//            if (this.recursionDepth == 1) {
+//                this.context.profilingData.recursionMillis.addAndGet(recursionMillis);
+//            }
+//            _startMillis += recursionMillis; // Act as if we started later...
+//
+//            // Finally, we need to check whether some of our alleged minimal dependencies are actually minimal.
+//            // We have to check them, because they lie outside of the scope and, thus, cannot be discovered in the
+//            // above recursion.
+//            for (Map.Entry<Vertical, VerticalInfo> entry : allegedMinDeps.entrySet()) {
+//                Vertical allegedMinDep = entry.getKey();
+//                VerticalInfo info = entry.getValue();
+//                if (!isImpliedByMinDep(allegedMinDep, globalVisitees)) {
+//                    if (logger.isDebugEnabled())
+//                        logger.debug("[{}] Minimum dependency: {} (error={}) (was right after all)",
+//                                recursionDepth, strategy.format(allegedMinDep), info.error
+//                        );
+//                    info.isExtremal = true;
+//                    globalVisitees.put(allegedMinDep, info);
+//                    strategy.registerDependency(allegedMinDep, info.error, this.context);
+//                }
+//            }
+//        }
+//
+//        this.context.profilingData.trickleDownMillis.addAndGet(System.currentTimeMillis() - _startMillis);
+//        this.context.profilingData.numTrickleDowns.incrementAndGet();
     }
 
     /**
@@ -765,8 +748,6 @@ public class SearchSpace implements Serializable {
                                      VerticalMap<VerticalInfo> localVisitees,
                                      VerticalMap<VerticalInfo> globalVisitees,
                                      double boostFactor) {
-        assert minDepCandidate.error.getMin() <= strategy.maxDependencyError;
-
         // Enumerate the parents of our candidate to check if any of them might be a dependency.
         boolean areAllParentsKnownNonDeps = true;
         if (minDepCandidate.vertical.getArity() > 1) {
