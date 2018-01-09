@@ -34,6 +34,8 @@ public class KeyG1Strategy extends DependencyStrategy {
 
     @Override
     double calculateError(Vertical keyCandidate) {
+        if (keyCandidate.getArity() == 0) return 1d;
+
         final long startNanos = System.nanoTime();
         PositionListIndex pli = this.context.pliCache.getOrCreateFor(keyCandidate, this.context);
         double error = this.calculateKeyError(pli);
