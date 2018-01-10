@@ -4,7 +4,6 @@ import de.hpi.isg.pyro.model.Column;
 import de.hpi.isg.pyro.model.PartialKey;
 import de.hpi.isg.pyro.model.RelationSchema;
 import de.hpi.isg.pyro.model.Vertical;
-import de.hpi.isg.pyro.util.ConfidenceInterval;
 import de.hpi.isg.pyro.util.SynchronizedVerticalMap;
 import de.hpi.isg.pyro.util.VerticalMap;
 import it.unimi.dsi.fastutil.ints.Int2IntAVLTreeMap;
@@ -106,59 +105,63 @@ public class SearchSpace implements Serializable {
      * @return whether there where no more processors operating on this instance as of the return from this method
      */
     public void discover() {
-        this.discover(null);
-    }
-
-    /**
-     * This method discovers data dependencies (either keys or FDs).
-     *
-     * @param localVisitees known (non-)dependencies
-     */
-    private void discover(VerticalMap<VerticalInfo> localVisitees) {
         while (true) {
+            int numAscensions = 0;
+            VerticalMap<Vertical> peaks = new VerticalMap<>(this.context.getSchema());
             while (!this.interruptFlag) {
                 final long startMillis = System.currentTimeMillis();
-                DependencyCandidate launchPad = this.pollLaunchPad(localVisitees);
-                if (localVisitees == null) {
-                    this.context.profilingData.launchpadMillis.addAndGet(System.currentTimeMillis() - startMillis);
-                }
+                DependencyCandidate launchPad = this.pollLaunchPad(peaks);
+                this.context.profilingData.launchpadMillis.addAndGet(System.currentTimeMillis() - startMillis);
                 if (launchPad == null) break;
 
                 // Keep track of the visited dependency candidates to avoid duplicate visits and enable pruning.
-                localVisitees = localVisitees != null ? localVisitees : new VerticalMap<>(this.context.getSchema());
-                boolean isDependencyFound = this.ascend(launchPad, localVisitees);
+                boolean isDependencyFound = this.ascend(launchPad, peaks);
+                numAscensions++;
+//                if (isDependencyFound) System.out.print("x");
+//                else System.out.print("-");
 
                 this.returnLaunchPad(launchPad, !isDependencyFound);
             }
+            int _deps = (int) this.globalVisitees.entrySet().stream()
+                    .filter(e -> e.getValue().isDependency)
+                    .count();
+            int _nonDeps = (int) this.globalVisitees.entrySet().stream()
+                    .filter(e -> !e.getValue().isDependency)
+                    .count();
+//            System.out.printf("\n%,d deps; %,d non-deps\n", _deps, _nonDeps);
+            System.out.printf("Performed %,8d ascensions... ", numAscensions);
 
             // Check the alleged minimal dependencies by checking the corresponding maximal dependencies.
             ArrayList<Vertical> dependencies = new ArrayList<>(this.globalVisitees.size());
             for (Map.Entry<Vertical, VerticalInfo> entry : this.globalVisitees.entrySet()) {
                 // Test if this is a minimal dependency.
-                if (entry.getValue().isDependency && this.globalVisitees.getAnySubsetEntry(
-                        entry.getKey(),
-                        (k, v) -> v.isDependency && k.getArity() < entry.getKey().getArity()) == null
-                        ) {
-                    dependencies.add(entry.getKey());
-                }
+//                if (entry.getValue().isDependency && this.globalVisitees.getAnySubsetEntry(
+//                        entry.getKey(),
+//                        (k, v) -> v.isDependency && k.getArity() < entry.getKey().getArity()) == null
+//                        ) {
+                    if (entry.getValue().isDependency) dependencies.add(entry.getKey());
+//                }
             }
             Collection<Vertical> hittingSets = this.context.getSchema().calculateHittingSet(
                     dependencies, null, this.context.profilingData
             );
             Vertical inversionScope = this.strategy.getIrrelevantColumns().invert();
-            int numDeps = 0, numNonDeps = 0;
+            int numDeps = 0, numNonDeps = 0, numSkipped = 0;
             this.scope = new VerticalMap<>(this.context.getSchema());
             for (Vertical hittingSet : hittingSets) {
                 Vertical maxNonDepCandidate = hittingSet.invert(inversionScope);
                 if (isKnownNonDependency(maxNonDepCandidate, this.globalVisitees)) {
 //                System.out.printf("Skipping check of     %s.\n", maxNonDepCandidate);
+                    // Mark it as a max.
+                    this.globalVisitees.put(maxNonDepCandidate, VerticalInfo.forMaximalNonDependency());
                     numNonDeps++;
+                    numSkipped++;
                     continue;
                 }
                 double error = this.strategy.calculateError(maxNonDepCandidate);
                 this.context.profilingData.verifyErrorCalculations.incrementAndGet();
                 if (error <= this.strategy.minNonDependencyError) {
-//                System.out.printf("Not a non-dependency: %s, error: %,03f.\n", maxNonDepCandidate, error);
+//                System.out.printf("Not a non-dependency: e(%s) = %,05f.\n", strategy.format(maxNonDepCandidate), error);
                     numDeps++;
                     this.scope.put(maxNonDepCandidate, maxNonDepCandidate);
                     this.globalVisitees.put(maxNonDepCandidate, VerticalInfo.forDependency());
@@ -168,12 +171,53 @@ public class SearchSpace implements Serializable {
                     this.globalVisitees.put(maxNonDepCandidate, VerticalInfo.forMaximalNonDependency());
                 }
             }
-            System.out.printf("Non-dependency rate: %,d of %,d (= %,.03f%%)\n", numNonDeps, numDeps + numNonDeps, numNonDeps * 100d / (numDeps + numNonDeps));
+            System.out.printf("Non-dependency rate: %,d of %,d (= %,.03f%%, skipped %,d checks)\n", numNonDeps, numDeps + numNonDeps, numNonDeps * 100d / (numDeps + numNonDeps), numSkipped);
+
+            // Clean up redundant (non-)dependencies.
+            for (Map.Entry<Vertical, VerticalInfo> entry : this.globalVisitees.entrySet()) {
+                Vertical vertical = entry.getKey();
+                VerticalInfo info = entry.getValue();
+                if (info.isExtremal) {
+                    if (info.isDependency) {
+                        assert this.globalVisitees.getAnySubsetEntry(vertical, (k, v) -> v.isDependency && !k.equals(vertical)) == null :
+                        String.format("Illegal minimal dependency: %s (subset entries: %s)",
+                                this.strategy.format(vertical),
+                                this.globalVisitees.getSubsetEntries(vertical)
+                        );
+                    } else {
+                        assert this.globalVisitees.getAnySupersetEntry(vertical, (k, v) -> !v.isDependency && !k.equals(vertical)) == null :
+                                String.format("Illegal maximal non-dependency: %s (superset entries: %s)",
+                                        this.strategy.format(vertical),
+                                        this.globalVisitees.getSupersetEntries(vertical)
+                                );
+                    }
+                    continue;
+                }
+                if (info.isDependency) {
+                    if (this.globalVisitees.getAnySubsetEntry(vertical, (k, v) -> v.isDependency && k.getArity() < vertical.getArity()) != null) {
+                        this.globalVisitees.remove(vertical);
+                    }
+                } else {
+                    if (this.globalVisitees.getAnySupersetEntry(vertical, (k, v) -> !v.isDependency  && k.getArity() > vertical.getArity()) != null) {
+                        this.globalVisitees.remove(vertical);
+                    }
+                }
+            }
 
             if (!this.scope.isEmpty()) {
-                for (Vertical vertical : this.strategy.getIrrelevantColumns().invert().getColumns()) {
-                    this.addLaunchPad(this.strategy.createDependencyCandidate(vertical));
+                List<Vertical> invertedMaxNonDeps = this.globalVisitees.entrySet().stream()
+                        .filter(e -> !e.getValue().isDependency && e.getValue().isExtremal)
+                        .map(e -> e.getKey().invert().without(this.strategy.getIrrelevantColumns()))
+                        .collect(Collectors.toList());
+                Collection<Vertical> newLaunchpads = this.context.getSchema().calculateHittingSet(
+                        invertedMaxNonDeps,
+                        candidate -> this.scope.getAnySupersetEntry(candidate) == null || isKnownDependency(candidate, this.globalVisitees),
+                        this.context.profilingData
+                );
+                for (Vertical newLaunchpad : newLaunchpads) {
+                    this.addLaunchPad(this.strategy.createDependencyCandidate(newLaunchpad));
                 }
+                System.out.printf("Determined %,d new launchpads and %,d scope items.\n", newLaunchpads.size(), this.scope.size());
                 this.sampleBoost *= this.context.configuration.sampleBooster;
             } else {
                 for (Vertical dependency : dependencies) {
@@ -188,10 +232,10 @@ public class SearchSpace implements Serializable {
      * Poll a launch pad from the {@link #launchPads}. This method takes care of synchronization issues and
      * escaping of the launch pads.
      *
-     * @param localVisitees a complementary set of known {@link VerticalInfo}s to the {@link #globalVisitees}
+     * @param peaks {@link Vertical}s where we stopped ascending in the current round -- subsets must not be investigated
      * @return the {@link DependencyCandidate} launch pad or {@code null} if none
      */
-    DependencyCandidate pollLaunchPad(VerticalMap<VerticalInfo> localVisitees) {
+    DependencyCandidate pollLaunchPad(VerticalMap<Vertical> peaks) {
         while (true) {
             final DependencyCandidate launchPad;
             synchronized (this.launchPads) {
@@ -209,11 +253,8 @@ public class SearchSpace implements Serializable {
                 this.launchPadIndex.remove(launchPad.vertical);
             }
 
-            // TODO: Check if the launchPad can be estimated more accurately.
-
             // Make sure that the candidate is not subset-pruned, i.e., we already identified it to be a dependency.
-            if (isKnownDependency(launchPad.vertical, globalVisitees)
-                    || (localVisitees != null && isKnownDependency(launchPad.vertical, localVisitees))) {
+            if (isKnownDependency(launchPad.vertical, globalVisitees)) {
                 // If it is subset-pruned, we can remove it.
                 // Note: We can remove the launch pad without synchronization.
                 if (logger.isTraceEnabled()) {
@@ -224,13 +265,15 @@ public class SearchSpace implements Serializable {
             }
 
             // Make sure that the launchPad is not superset-pruned.
-            ArrayList<Map.Entry<Vertical, VerticalInfo>> supersetEntries = this.globalVisitees.getSupersetEntries(launchPad.vertical);
-            if (localVisitees != null) {
-                localVisitees.getSupersetEntries(launchPad.vertical).stream()
-                        .filter(e -> e.getValue().isPruningSubsets())
-                        .forEach(supersetEntries::add);
+            ArrayList<Vertical> supersetVerticals = new ArrayList<>();
+            for (Map.Entry<Vertical, Vertical> entry : peaks.getSupersetEntries(launchPad.vertical)) {
+                supersetVerticals.add(entry.getKey());
             }
-            if (supersetEntries.isEmpty()) {
+            this.globalVisitees.getSupersetEntries(launchPad.vertical).stream()
+                    .filter(e -> e.getValue().isPruningSubsets())
+                    .forEach(e -> supersetVerticals.add(e.getKey()));
+
+            if (supersetVerticals.isEmpty()) {
                 return launchPad;
             }
             try {
@@ -239,15 +282,14 @@ public class SearchSpace implements Serializable {
                     if (logger.isTraceEnabled()) {
                         logger.trace("* Escaping launchPad {} from: {}",
                                 strategy.format(launchPad.vertical),
-                                supersetEntries.stream()
-                                        .map(entry -> String.format("%s (%s)", strategy.format(entry.getKey()), entry.getValue()))
+                                supersetVerticals.stream()
+                                        .map(v -> String.format("%s", strategy.format(v)))
                                         .collect(Collectors.joining(", "))
                         );
                     }
                     this.escapeLaunchPad(
                             launchPad.vertical,
-                            supersetEntries.stream().map(Map.Entry::getKey).collect(Collectors.toList()),
-                            localVisitees
+                            supersetVerticals
                     );
                     this.launchPadIndexLock.unlock();
                     continue;
@@ -277,8 +319,7 @@ public class SearchSpace implements Serializable {
      * @param localVisitees    known (non-)dependencies
      */
     private void escapeLaunchPad(Vertical launchPad,
-                                 List<Vertical> pruningSupersets,
-                                 VerticalMap<VerticalInfo> localVisitees) {
+                                 List<Vertical> pruningSupersets) {
 
         // Invert the pruning supersets.
         List<Vertical> invertedPruningSupersets = pruningSupersets.stream()
@@ -298,8 +339,7 @@ public class SearchSpace implements Serializable {
                     Vertical launchPadCandidate = launchPad.union(hittingSetCandidate);
 
                     // Check if the candidate is pruned.
-                    if ((localVisitees != null && isKnownDependency(launchPadCandidate, localVisitees))
-                            || isKnownDependency(launchPadCandidate, globalVisitees)) {
+                    if (isKnownDependency(launchPadCandidate, globalVisitees)) {
                         return true;
                     }
 
@@ -363,7 +403,7 @@ public class SearchSpace implements Serializable {
      * @param localVisitees stores local dependencies and non-dependencies
      * @return whether a dependency was met
      */
-    private boolean ascend(DependencyCandidate launchPad, VerticalMap<VerticalInfo> localVisitees) {
+    private boolean ascend(DependencyCandidate launchPad, VerticalMap<Vertical> peaks) {
         long _startMillis = System.currentTimeMillis();
 
         if (logger.isDebugEnabled())
@@ -389,7 +429,8 @@ public class SearchSpace implements Serializable {
             // Do we think the candidate might be a dependency?
             isTrickledDown = traversalCandidate.error.getMin() <= strategy.minNonDependencyError;
             if (isTrickledDown) {
-                if (this.trickleDown(traversalCandidate, localVisitees)) {
+                if (this.trickleDown(traversalCandidate, peaks)) {
+                    peaks.put(traversalCandidate.vertical, traversalCandidate.vertical);
                     return true;
                 } else if (traversalCandidate.error.getMean() <= strategy.minNonDependencyError) {
                     // Potentially create a new agree set sample.
@@ -443,8 +484,11 @@ public class SearchSpace implements Serializable {
             }
         } // Climbing
 
+        // If we cannot go any further, we have a peak for sure.
+        peaks.put(traversalCandidate.vertical, traversalCandidate.vertical);
+
         // Last call for a dependency.
-        if (!isTrickledDown && this.trickleDown(traversalCandidate, localVisitees)) {
+        if (!isTrickledDown && this.trickleDown(traversalCandidate, peaks)) {
             return true;
         }
 
@@ -482,7 +526,7 @@ public class SearchSpace implements Serializable {
      * @param localVisitees     known non-keys in the current search round
      * @return whether the {@code mainPeakCandidate} really was a dependency
      */
-    private boolean trickleDown(DependencyCandidate mainPeakCandidate, VerticalMap<VerticalInfo> localVisitees) {
+    private boolean trickleDown(DependencyCandidate mainPeakCandidate, VerticalMap<Vertical> globalPeaks) {
         long _startMillis = System.currentTimeMillis();
 
         if (logger.isDebugEnabled())
@@ -554,8 +598,7 @@ public class SearchSpace implements Serializable {
                             allegedNonDeps.add(escapedPeak.vertical);
                             continue;
                         }
-                        if (isKnownNonDependency(escapedPeakVertical, localVisitees)
-                                || isKnownNonDependency(escapedPeakVertical, globalVisitees)) {
+                        if (isKnownNonDependency(escapedPeakVertical, globalVisitees)) { // TODO: Check if covered by other peak already.
                             continue;
                         }
 
@@ -566,7 +609,7 @@ public class SearchSpace implements Serializable {
             }
 
             // Find an alleged minimum dependency for the peak.
-            Vertical allegedMinDep = this.trickleDownFrom(peak, strategy, allegedMinDeps, allegedNonDeps, localVisitees, globalVisitees, sampleBoost);
+            Vertical allegedMinDep = this.trickleDownFrom(peak, strategy, allegedMinDeps, allegedNonDeps, globalPeaks, sampleBoost);
             if (allegedMinDep == null) {
                 // If we could not find an alleged minimum dependency, that means that we do not believe that the
                 // peak itself is a dependency. Hence, we remove it.
@@ -745,8 +788,7 @@ public class SearchSpace implements Serializable {
                                      DependencyStrategy strategy,
                                      VerticalMap<VerticalInfo> allegedMinDeps,
                                      Set<Vertical> allegedNonDeps,
-                                     VerticalMap<VerticalInfo> localVisitees,
-                                     VerticalMap<VerticalInfo> globalVisitees,
+                                     VerticalMap<Vertical> peaks,
                                      double boostFactor) {
         // Enumerate the parents of our candidate to check if any of them might be a dependency.
         boolean areAllParentsKnownNonDeps = true;
@@ -757,8 +799,7 @@ public class SearchSpace implements Serializable {
             );
             for (Vertical parentVertical : minDepCandidate.vertical.getParents()) {
                 // Check if the parent vertical is a known non-dependency.
-                if (isKnownNonDependency(parentVertical, localVisitees)
-                        || isKnownNonDependency(parentVertical, globalVisitees)) continue;
+                if (isKnownNonDependency(parentVertical, globalVisitees)) continue; // TODO: Other peaks.
                 // Avoid double visits.
                 if (allegedNonDeps.contains(parentVertical)) {
                     areAllParentsKnownNonDeps = false;
@@ -770,6 +811,10 @@ public class SearchSpace implements Serializable {
 
             // Check the parent candidates with relevant errors.
             while (!parentCandidates.isEmpty()) {
+//                if (System.currentTimeMillis() > 0) {
+//                    areAllParentsKnownNonDeps = false;
+//                    break; // TODO Debug
+//                }
                 DependencyCandidate parentCandidate = parentCandidates.poll();
                 // We can stop as soon as the unchecked parent candidate with the least error is not deemed to be a dependency.
                 // Additionally, we distinguish whether the parents are known non-dependencies or we just deem them so.
@@ -777,7 +822,7 @@ public class SearchSpace implements Serializable {
                     // Additionally, we mark all remaining candidates as alleged non-dependencies to avoid revisits.
                     do {
                         if (parentCandidate.isExact()) {
-                            localVisitees.put(parentCandidate.vertical, VerticalInfo.forNonDependency());
+                            globalVisitees.put(parentCandidate.vertical, VerticalInfo.forNonDependency());
                         } else {
                             allegedNonDeps.add(parentCandidate.vertical);
                             areAllParentsKnownNonDeps = false;
@@ -793,23 +838,22 @@ public class SearchSpace implements Serializable {
                         strategy,
                         allegedMinDeps,
                         allegedNonDeps,
-                        localVisitees,
-                        globalVisitees,
+                        peaks,
                         boostFactor
                 );
                 // Stop immediately, when an alleged minimum dependency has been found.
                 if (allegedMinDep != null) return allegedMinDep;
 
-                // Otherwise, we try to update our minimum dependency candidate and see if we still deem the current
-                // candidate to be a dependency.
-                if (!minDepCandidate.isExact()) {
-                    // In particular, we test if this very node is a dependency itself. This is supposedly not expensive
-                    // because we just falsified a parent.
-                    double error = strategy.calculateError(minDepCandidate.vertical);
-                    this.context.profilingData.trickleErrorCalculations.incrementAndGet();
-                    minDepCandidate = new DependencyCandidate(minDepCandidate.vertical, new ConfidenceInterval(error), true);
-                    if (error > strategy.minNonDependencyError) break;
-                }
+//                // Otherwise, we try to update our minimum dependency candidate and see if we still deem the current
+//                // candidate to be a dependency.
+//                if (!minDepCandidate.isExact()) {
+//                    // In particular, we test if this very node is a dependency itself. This is supposedly not expensive
+//                    // because we just falsified a parent.
+//                    double error = strategy.calculateError(minDepCandidate.vertical);
+//                    this.context.profilingData.trickleErrorCalculations.incrementAndGet();
+//                    minDepCandidate = new DependencyCandidate(minDepCandidate.vertical, new ConfidenceInterval(error), true);
+//                    if (error > strategy.minNonDependencyError) break;
+//                }
             }
         }
 
@@ -818,6 +862,16 @@ public class SearchSpace implements Serializable {
         double candidateError = minDepCandidate.isExact() ?
                 minDepCandidate.error.get() :
                 strategy.calculateError(minDepCandidate.vertical);
+//        if (candidateError > strategy.maxDependencyError && minDepCandidate.error.getMean() <= strategy.maxDependencyError) {
+//            System.out.printf("v %s:\t%.05f -> %.05f\n", minDepCandidate.vertical, minDepCandidate.error.getMean(), candidateError);
+//        }
+//        if (candidateError > minDepCandidate.error.getMean()) {
+//            System.out.print("^");
+//        } else if (candidateError < minDepCandidate.error.getMean()) {
+//            System.out.print("v");
+//        } else {
+//            System.out.print(">");
+//        }
         double errorDiff = candidateError - minDepCandidate.error.getMean();
         this.context.profilingData.errorRmse.addAndGet(errorDiff * errorDiff);
         this.context.profilingData.errorRmseCounter.incrementAndGet();
@@ -836,7 +890,7 @@ public class SearchSpace implements Serializable {
         } else {
             if (logger.isTraceEnabled())
                 logger.trace("* Guessed incorrect {}-ary minimum dependency candidate.", minDepCandidate.vertical.getArity());
-            localVisitees.put(minDepCandidate.vertical, VerticalInfo.forNonDependency());
+            globalVisitees.put(minDepCandidate.vertical, VerticalInfo.forNonDependency());
 
             // If we had a wrong guess, we re-sample so as to provide insights for the child vertices.
             if (strategy.shouldResample(minDepCandidate.vertical, boostFactor)) {

@@ -182,7 +182,7 @@ public class RelationSchema implements Serializable {
         // Now, continuously refine these escaped LHS.
         for (Vertical vertical : sortedVerticals) {
 
-            // We can skip any vertical whose supersets we already operated on.
+            // We can skip any vertical whose subsets we already operated on.
             if (consolidatedVerticals.getAnySubsetEntry(vertical) != null) {
                 continue;
             }
