@@ -45,7 +45,7 @@ object AkkaUtils {
         |}
         |com.twitter.chill.config.configuredinstantiator = "de.hpi.isg.pyro.akka.utils.SerializationUtils$PyroKryoInstantiator$"
       """.stripMargin
-    ConfigFactory.load() withFallback ConfigFactory.parseString(configString)
+    ConfigFactory.defaultApplication() withFallback ConfigFactory.parseString(configString)
   }
 
   /**
